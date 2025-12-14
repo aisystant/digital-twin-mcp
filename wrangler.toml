@@ -1,0 +1,38 @@
+name = "digital-twin-mcp"
+main = "src/worker-sse.js"
+compatibility_date = "2024-12-01"
+
+# Account details - update with your Cloudflare account ID
+# account_id = "your-account-id-here"
+
+# Observability configuration for enhanced logging
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[env.production]
+name = "digital-twin-mcp-prod"
+routes = [
+  { pattern = "digital-twin-mcp.yourdomain.com", custom_domain = true }
+]
+
+[env.staging]
+name = "digital-twin-mcp-staging"
+
+# Optional: Configure KV namespace for persistent storage (future enhancement)
+# [[kv_namespaces]]
+# binding = "DIGITAL_TWIN_DATA"
+# id = "your-kv-namespace-id"
+
+# Optional: Configure D1 database for SQL storage (future enhancement)
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "digital-twin-db"
+# database_id = "your-d1-database-id"
+
+# Optional: Secrets for API authentication
+# Run: wrangler secret put API_KEY
+# Then access via env.API_KEY in worker

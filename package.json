@@ -1,0 +1,26 @@
+{
+  "name": "digital-twin-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Digital Twin learner data - provides tools for AI Guide to work with learner profiles, stages, routes and metrics",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test src/**/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "digital-twin",
+    "learner",
+    "cloudflare-workers"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}
