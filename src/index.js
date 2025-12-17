@@ -333,10 +333,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             period_start: {
               type: "string",
               description: "Period start date (ISO format, optional)",
@@ -346,7 +342,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Period end date (ISO format, optional)",
             },
           },
-          required: ["learner_id"],
+          required: [],
         },
       },
       {
@@ -355,17 +351,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             period: {
               type: "string",
               enum: ["4_weeks", "8_weeks", "3_months"],
               description: "Analysis period",
             },
           },
-          required: ["learner_id"],
+          required: [],
         },
       },
       {
@@ -374,16 +366,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             limit: {
               type: "number",
               description: "Maximum number of records to return",
             },
           },
-          required: ["learner_id"],
+          required: [],
         },
       },
       {
@@ -392,10 +380,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             stage: {
               type: "string",
               enum: ["Случайный", "Практикующий", "Систематический", "Дисциплинированный", "Проактивный"],
@@ -410,7 +394,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Snapshot of key metrics at this evaluation",
             },
           },
-          required: ["learner_id", "stage", "reason"],
+          required: ["stage", "reason"],
         },
       },
 
@@ -420,13 +404,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "Get current learning route for a learner with goals, steps, and their statuses.",
         inputSchema: {
           type: "object",
-          properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
-          },
-          required: ["learner_id"],
+          properties: {},
+          required: [],
         },
       },
       {
@@ -435,10 +414,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             route_data: {
               type: "object",
               properties: {
@@ -463,7 +438,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               required: ["goals", "steps"],
             },
           },
-          required: ["learner_id", "route_data"],
+          required: ["route_data"],
         },
       },
       {
@@ -472,10 +447,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             step_id: {
               type: "string",
               description: "Step identifier",
@@ -490,7 +461,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Optional comment about the status change",
             },
           },
-          required: ["learner_id", "step_id", "new_status"],
+          required: ["step_id", "new_status"],
         },
       },
 
@@ -501,10 +472,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             session_type: {
               type: "string",
               enum: ["one_time", "weekly", "transition", "reactivation"],
@@ -525,7 +492,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "References to data used in decision making",
             },
           },
-          required: ["learner_id", "session_type", "input_summary", "actions"],
+          required: ["session_type", "input_summary", "actions"],
         },
       },
       {
@@ -534,16 +501,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             limit: {
               type: "number",
               description: "Maximum number of sessions to return",
             },
           },
-          required: ["learner_id"],
+          required: [],
         },
       },
 
@@ -554,16 +517,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             period: {
               type: "string",
               description: "Period to recalculate (e.g., '1_week', '4_weeks')",
             },
           },
-          required: ["learner_id", "period"],
+          required: ["period"],
         },
       },
       {
@@ -572,10 +531,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            learner_id: {
-              type: "string",
-              description: "Learner identifier",
-            },
             metric_keys: {
               type: "array",
               items: { type: "string" },
@@ -586,7 +541,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Period for trend analysis",
             },
           },
-          required: ["learner_id", "metric_keys", "period"],
+          required: ["metric_keys", "period"],
         },
       },
 
@@ -639,34 +594,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
+// Default learner ID (in production, this would come from authentication/session)
+const DEFAULT_LEARNER_ID = "learner_001";
+
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
     let result;
+    // Use default learner ID for all learner-specific operations
+    const learnerId = DEFAULT_LEARNER_ID;
 
     switch (name) {
       // Group A
       case "get_learner_summary":
         result = getLearnerSummary(
-          args.learner_id,
+          learnerId,
           args.period_start,
           args.period_end
         );
         break;
 
       case "get_learner_core_metrics":
-        result = getLearnerCoreMetrics(args.learner_id, args.period);
+        result = getLearnerCoreMetrics(learnerId, args.period);
         break;
 
       case "get_stage_history":
-        result = getStageHistory(args.learner_id, args.limit);
+        result = getStageHistory(learnerId, args.limit);
         break;
 
       case "upsert_learner_stage_evaluation":
         result = upsertLearnerStageEvaluation(
-          args.learner_id,
+          learnerId,
           args.stage,
           args.reason,
           args.metrics_snapshot
@@ -675,16 +635,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Group B
       case "get_learning_route":
-        result = getLearningRoute(args.learner_id);
+        result = getLearningRoute(learnerId);
         break;
 
       case "upsert_learning_route":
-        result = upsertLearningRoute(args.learner_id, args.route_data);
+        result = upsertLearningRoute(learnerId, args.route_data);
         break;
 
       case "update_route_step_status":
         result = updateRouteStepStatus(
-          args.learner_id,
+          learnerId,
           args.step_id,
           args.new_status,
           args.comment
@@ -694,7 +654,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Group C
       case "log_guide_session":
         result = logGuideSession(
-          args.learner_id,
+          learnerId,
           args.session_type,
           args.input_summary,
           args.actions,
@@ -703,17 +663,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
 
       case "get_recent_guide_sessions":
-        result = getRecentGuideSessions(args.learner_id, args.limit);
+        result = getRecentGuideSessions(learnerId, args.limit);
         break;
 
       // Group D
       case "recalc_aggregates_for_period":
-        result = recalcAggregatesForPeriod(args.learner_id, args.period);
+        result = recalcAggregatesForPeriod(learnerId, args.period);
         break;
 
       case "get_aggregate_trends":
         result = getAggregateTrends(
-          args.learner_id,
+          learnerId,
           args.metric_keys,
           args.period
         );

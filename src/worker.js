@@ -348,6 +348,9 @@ const toolDefinitions = [
 // Initialize data on worker start
 initializeMockData();
 
+// Default learner ID (in production, this would come from authentication/session)
+const DEFAULT_LEARNER_ID = "learner_001";
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -428,7 +431,9 @@ export default {
           });
         }
 
-        const result = toolFn(args || {});
+        // Inject default learner_id for learner-specific tools
+        const enhancedArgs = { ...args, learner_id: DEFAULT_LEARNER_ID };
+        const result = toolFn(enhancedArgs);
 
         return new Response(JSON.stringify({
           tool,
