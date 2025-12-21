@@ -1,6 +1,8 @@
 // Cloudflare Workers entry point for Digital Twin MCP Server
 // This handles HTTP requests and translates them to MCP protocol
 
+import { authenticate } from './auth.js';
+
 // Mock data store
 const mockData = {
   learners: new Map(),
@@ -359,7 +361,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
     // Handle CORS preflight
@@ -385,6 +387,20 @@ export default {
 
     // List available tools
     if (url.pathname === '/tools') {
+      // Authenticate request
+      const authResult = await authenticate(request, env);
+      if (!authResult.authenticated) {
+        const response = authResult.response;
+        const headers = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+        return new Response(response.body, {
+          status: response.status,
+          headers
+        });
+      }
+
       const groupedTools = {};
       toolDefinitions.forEach(tool => {
         if (!groupedTools[tool.group]) {
@@ -407,6 +423,20 @@ export default {
 
     // Call a tool
     if (url.pathname === '/call' && request.method === 'POST') {
+      // Authenticate request
+      const authResult = await authenticate(request, env);
+      if (!authResult.authenticated) {
+        const response = authResult.response;
+        const headers = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+        return new Response(response.body, {
+          status: response.status,
+          headers
+        });
+      }
+
       try {
         const body = await request.json();
         const { tool, arguments: args } = body;
@@ -431,8 +461,8 @@ export default {
           });
         }
 
-        // Inject default learner_id for learner-specific tools
-        const enhancedArgs = { ...args, learner_id: DEFAULT_LEARNER_ID };
+        // Inject authenticated user ID as learner_id
+        const enhancedArgs = { ...args, learner_id: authResult.userId };
         const result = toolFn(enhancedArgs);
 
         return new Response(JSON.stringify({

@@ -367,11 +367,19 @@ When learner is ready to progress:
 
 ### Environment Variables
 
-For production deployment, set these secrets in Cloudflare:
+See [SETUP-ORY.md](./SETUP-ORY.md) and [.env.example](./.env.example) for authentication configuration.
 
+**Required for authentication:**
 ```bash
-# API authentication (optional)
-wrangler secret put API_KEY
+wrangler secret put ORY_ISSUER_URL
+wrangler secret put ORY_CLIENT_ID
+wrangler secret put ORY_CLIENT_SECRET
+```
+
+**Optional:**
+```bash
+# API audience (if configured in Ory)
+wrangler secret put ORY_AUDIENCE
 
 # Database connection (when implementing real DB)
 wrangler secret put DATABASE_URL
@@ -444,21 +452,65 @@ Cloudflare Workers logs available via:
 wrangler tail
 ```
 
+## Authentication
+
+The server supports OAuth 2.0 authentication via **Ory** (Cloud or self-hosted) with JWT validation.
+
+### Setup
+
+See [SETUP-ORY.md](./SETUP-ORY.md) for detailed configuration instructions.
+
+**Quick start:**
+
+1. Create OAuth app in Ory
+2. Configure email + OTP authentication
+3. Set environment variables:
+   ```bash
+   wrangler secret put ORY_ISSUER_URL
+   wrangler secret put ORY_CLIENT_ID
+   wrangler secret put ORY_CLIENT_SECRET
+   ```
+4. Deploy: `npm run deploy`
+
+### Development Mode
+
+Authentication is **optional** in development. If `ORY_ISSUER_URL` is not set, the server runs without authentication using a default learner ID.
+
+```bash
+# Run without authentication
+npm run dev
+```
+
+### Using with Authentication
+
+Include JWT bearer token in Authorization header:
+
+```bash
+curl -X POST https://your-worker.workers.dev/mcp \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The authenticated user's ID is automatically used as the learner ID for all tool calls.
+
 ## Security
 
 ### Current Status (v1.0)
 
-- ⚠️ No authentication (development only)
-- ⚠️ CORS open to all origins
+- ✅ OAuth 2.0 authentication with Ory
+- ✅ JWT validation with JWKS
+- ✅ User isolation (authenticated user ID = learner ID)
+- ⚠️ CORS open to all origins (development)
 - ⚠️ No rate limiting
 - ⚠️ Mock data only
 
 ### Production Recommendations
 
-- [ ] Add API key authentication
+- [x] Add OAuth 2.0 authentication
 - [ ] Implement rate limiting
 - [ ] Restrict CORS to specific origins
-- [ ] Use HTTPS only
+- [x] Use HTTPS only (enforced by Cloudflare)
 - [ ] Encrypt sensitive learner data
 - [ ] Implement audit logging
 
@@ -469,12 +521,14 @@ wrangler tail
 - ✅ Mock data store
 - ✅ Cloudflare Workers deployment
 - ✅ HTTP API endpoints
+- ✅ OAuth 2.0 authentication with Ory
+- ✅ JWT validation with JWKS caching
 
 ### v1.1 (Next)
 - [ ] Connect to real database (SurrealDB/PostgreSQL)
-- [ ] API authentication
 - [ ] Rate limiting
 - [ ] Automated tests
+- [ ] Restrict CORS to specific origins
 
 ### v2.0 (Future)
 - [ ] Real-time metrics calculation

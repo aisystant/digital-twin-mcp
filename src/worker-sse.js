@@ -5,6 +5,8 @@
  * Compatible with Claude and other MCP clients
  */
 
+import { authenticate } from './auth.js';
+
 // Mock data store
 const mockData = {
   learners: new Map(),
@@ -444,7 +446,7 @@ const tools = [
 ];
 
 // Handle MCP protocol messages
-function handleMCPMessage(message) {
+function handleMCPMessage(message, authenticatedUserId) {
   const { jsonrpc, id, method, params } = message;
 
   if (jsonrpc !== "2.0") {
@@ -494,7 +496,10 @@ function handleMCPMessage(message) {
           };
         }
 
-        const result = handler(args || {});
+        // Inject authenticated user ID as learner_id
+        const argsWithAuth = { ...(args || {}), learner_id: authenticatedUserId };
+
+        const result = handler(argsWithAuth);
         return {
           jsonrpc: "2.0",
           id,
@@ -560,7 +565,8 @@ export default {
               endpoints: {
                 mcp: "POST /mcp - Send JSON-RPC 2.0 messages",
                 docs: "GET /docs - API documentation",
-              }
+              },
+              authentication: env.ORY_ISSUER_URL ? "OAuth 2.0 with JWT (Bearer token required)" : "Disabled (development mode)"
             },
           }, null, 2),
           {
@@ -570,9 +576,24 @@ export default {
         );
       }
 
+      // Authenticate request
+      const authResult = await authenticate(request, env);
+      if (!authResult.authenticated) {
+        // Add CORS headers to auth error responses
+        const response = authResult.response;
+        const headers = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+        return new Response(response.body, {
+          status: response.status,
+          headers
+        });
+      }
+
       try {
         const message = await request.json();
-        const response = handleMCPMessage(message);
+        const response = handleMCPMessage(message, authResult.userId);
 
         return new Response(JSON.stringify(response, null, 2), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
