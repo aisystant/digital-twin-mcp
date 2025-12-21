@@ -14,158 +14,246 @@ const mockData = {
   aggregates: new Map(),
 };
 
-// Initialize with sample data
+// Initialize with sample data matching JSON schemas from MCP spec v2.0
 function initializeMockData() {
   const learnerId = "learner_001";
 
-  // Sample learner summary
+  // A1: get_learner_summary data
   mockData.learners.set(learnerId, {
-    id: learnerId,
-    name: "Sample Learner",
-    totalHours: 45.5,
-    sessions: 23,
-    pomodoros: 67,
-    completedTasks: 15,
-    clubActivity: 8,
+    total_hours: 12.5,
+    sessions_count: 18,
+    pomodoros_completed: 45,
+    tasks_completed: 7,
+    club_posts: 3,
+    club_comments: 12,
+    days_with_activity: 15,
+    avg_daily_minutes: 26,
   });
 
-  // Sample core metrics
+  // A2: get_learner_core_metrics data
   mockData.aggregates.set(learnerId, {
-    learnerId,
-    period: "4_weeks",
     metrics: {
-      "2.1.1": { value: 45.5, label: "Total hours", trend: "up" },
-      "2.1.2": { value: 4.2, label: "Sessions per week", trend: "stable" },
-      "2.2.1": { value: 0.75, label: "Practice regularity", trend: "up" },
-      "2.4.2": { value: "Практикующий", label: "Current stage" },
-      "2.10.1": { value: "motivation_gaps", label: "Stuck profile" },
+      "2.1.1_hours_per_week": 3.2,
+      "2.1.2_regularity_index": 0.42,
+      "2.1.3_daily_slot_minutes": 15,
+      "2.1.6_consistency_score": 2.1,
+      "2.2.1_practice_score": 15,
+      "2.2.7_mastery_index": 0.18,
+      "2.3.1_reflection_count": 2,
+      "2.3.2_question_quality_index": 0.35,
+      "2.4.2_current_stage": "Случайный",
+      "2.10.1_stagnation_profile": "Хаос"
     },
+    interpretation: {
+      regularity: "low",
+      stage_confidence: 0.85,
+      transition_readiness: 0.2,
+      risk_factors: ["irregular_schedule", "no_daily_slot"]
+    }
   });
 
-  // Sample stage history
+  // A3: get_stage_history data
   mockData.stageHistory.set(learnerId, [
     {
-      date: "2024-11-01",
+      date: "2025-12-15",
       stage: "Случайный",
-      comment: "Initial assessment",
-      metrics: { hours: 5, regularity: 0.2 },
+      previous_stage: null,
+      reason: "Первичная диагностика",
+      key_metrics: {
+        hours_per_week: 1.5,
+        regularity_index: 0.14
+      },
+      session_id: "session_2025-12-15_abc"
     },
     {
-      date: "2024-11-15",
+      date: "2025-11-01",
       stage: "Практикующий",
-      comment: "Established 15+ min daily practice",
-      metrics: { hours: 12, regularity: 0.6 },
-    },
+      previous_stage: "Случайный",
+      reason: "Появился стабильный слот 20 мин/день",
+      key_metrics: {
+        hours_per_week: 4.2,
+        regularity_index: 0.57
+      },
+      session_id: "session_2025-11-01_def"
+    }
   ]);
 
-  // Sample learning route
+  // B1: get_learning_route data
   mockData.routes.set(learnerId, {
-    id: "route_001",
-    learnerId,
-    goals: "Establish systematic daily practice of 30+ minutes",
+    route_id: "route_user123_v3",
+    version: 3,
+    created_at: "2025-12-10T08:00:00Z",
+    updated_at: "2025-12-18T14:30:00Z",
+    stage_focus: "Случайный",
+    goals: [
+      {
+        id: "goal_1",
+        description: "Выйти на 15+ минут ежедневного слота",
+        target_date: "2025-12-31",
+        progress: 0.4,
+        status: "in_progress"
+      }
+    ],
     steps: [
       {
-        id: "step_001",
-        title: "Morning 15-min slot",
-        status: "completed",
+        id: "step_1",
+        title: "Установить напоминание на 8:00",
+        description: "Настроить ежедневное напоминание о слоте саморазвития",
+        type: "setup",
         priority: 1,
+        status: "completed",
+        started_at: "2025-12-10T08:00:00Z",
+        completed_at: "2025-12-12T09:15:00Z"
       },
       {
-        id: "step_002",
-        title: "Evening reflection 10 min",
+        id: "step_2",
+        title: "Провести первую неделю с 15-минутным слотом",
+        description: "Ежедневно выделять 15 минут на чтение руководства",
+        type: "daily_habit",
+        priority: 1,
         status: "in_progress",
-        priority: 2,
+        started_at: "2025-12-13T08:00:00Z",
+        completed_at: null,
+        progress_notes: "5 из 7 дней выполнено"
       },
       {
-        id: "step_003",
-        title: "Weekend deep work 2 hours",
+        id: "step_3",
+        title: "Рефлексия по итогам недели",
+        description: "Написать короткий отчёт о первой неделе",
+        type: "reflection",
+        priority: 2,
         status: "pending",
-        priority: 3,
-      },
+        depends_on: ["step_2"]
+      }
     ],
-    createdAt: "2024-11-20",
-    updatedAt: "2024-12-01",
+    statistics: {
+      total_steps: 3,
+      completed: 1,
+      in_progress: 1,
+      pending: 1
+    }
   });
 
-  // Sample guide sessions
+  // C2: get_recent_guide_sessions data
   mockData.sessions.set(learnerId, [
     {
-      id: "session_001",
-      learnerId,
+      session_id: "session_2025-12-15_abc",
+      date: "2025-12-15",
       type: "weekly",
-      date: "2024-12-01",
-      summary: "Progress review, adjusted evening slot timing",
-      actions: ["Updated route step 002", "Discussed motivation gaps"],
+      summary: "Диагностика, ступень Случайный, создан маршрут на неделю",
+      decisions: [
+        "Цель: 15 минут/день",
+        "Установить напоминание на 8:00"
+      ],
+      outcome: "Маршрут принят пользователем"
     },
+    {
+      session_id: "session_2025-12-08_def",
+      date: "2025-12-08",
+      type: "initial",
+      summary: "Первичная диагностика нового ученика",
+      decisions: [
+        "Определена ступень Случайный",
+        "Профиль застревания: Хаос"
+      ],
+      outcome: "Создан первый маршрут"
+    }
   ]);
 }
 
 // Initialize mock data
 initializeMockData();
 
-// Helper functions
+// Helper functions matching JSON output schemas
+
+// A1: get_learner_summary
 function getLearnerSummary(learnerId, periodStart, periodEnd) {
   const learner = mockData.learners.get(learnerId);
   if (!learner) {
     throw new Error(`Learner ${learnerId} not found`);
   }
 
+  const period_start = periodStart || "2025-11-20";
+  const period_end = periodEnd || "2025-12-20";
+
   return {
-    learnerId,
-    period: { start: periodStart, end: periodEnd },
-    summary: learner,
+    ...learner,
+    period: {
+      start: period_start,
+      end: period_end
+    }
   };
 }
 
+// A2: get_learner_core_metrics
 function getLearnerCoreMetrics(learnerId, period = "4_weeks") {
-  const metrics = mockData.aggregates.get(learnerId);
-  if (!metrics) {
+  const data = mockData.aggregates.get(learnerId);
+  if (!data) {
     throw new Error(`Metrics for learner ${learnerId} not found`);
   }
 
+  const weeks = period === "4_weeks" ? 4 : period === "8_weeks" ? 8 : 12;
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - weeks * 7);
+
   return {
-    learnerId,
-    period,
-    metrics: metrics.metrics,
-    calculatedAt: new Date().toISOString(),
+    metrics: data.metrics,
+    interpretation: data.interpretation,
+    period: {
+      weeks: weeks,
+      start: startDate.toISOString().split('T')[0],
+      end: new Date().toISOString().split('T')[0]
+    }
   };
 }
 
+// A3: get_stage_history
 function getStageHistory(learnerId, limit = 10) {
   const history = mockData.stageHistory.get(learnerId) || [];
+  const current_stage = mockData.aggregates.get(learnerId)?.metrics["2.4.2_current_stage"] || "Случайный";
+
   return {
-    learnerId,
     history: history.slice(0, limit),
+    total_entries: history.length,
+    current_stage: current_stage
   };
 }
 
+// A4: upsert_learner_stage_evaluation
 function upsertLearnerStageEvaluation(learnerId, stage, reason, metricsSnapshot) {
   const history = mockData.stageHistory.get(learnerId) || [];
+  const previous_stage = mockData.aggregates.get(learnerId)?.metrics["2.4.2_current_stage"] || null;
+  const is_transition = previous_stage && previous_stage !== stage;
 
   const newEntry = {
     date: new Date().toISOString().split('T')[0],
     stage,
-    comment: reason,
-    metrics: metricsSnapshot,
+    previous_stage: previous_stage,
+    reason,
+    key_metrics: metricsSnapshot || {},
+    session_id: `session_${Date.now()}`
   };
 
-  history.push(newEntry);
+  history.unshift(newEntry);
   mockData.stageHistory.set(learnerId, history);
 
   // Update current stage in aggregates
   const metrics = mockData.aggregates.get(learnerId);
   if (metrics) {
-    metrics.metrics["2.4.2"].value = stage;
+    metrics.metrics["2.4.2_current_stage"] = stage;
   }
 
   return {
-    id: `stage_eval_${Date.now()}`,
-    learnerId,
-    stage,
-    createdAt: newEntry.date,
+    success: true,
+    evaluation_id: `eval_${new Date().toISOString().split('T')[0]}_${Date.now().toString(36)}`,
+    previous_stage: previous_stage,
+    new_stage: stage,
+    is_transition: is_transition,
+    recorded_at: new Date().toISOString()
   };
 }
 
+// B1: get_learning_route
 function getLearningRoute(learnerId) {
   const route = mockData.routes.get(learnerId);
   if (!route) {
@@ -175,28 +263,49 @@ function getLearningRoute(learnerId) {
   return route;
 }
 
+// B2: upsert_learning_route
 function upsertLearningRoute(learnerId, routeData) {
   const existingRoute = mockData.routes.get(learnerId);
+  const is_new = !existingRoute;
+  const version = existingRoute ? existingRoute.version + 1 : 1;
 
   const route = {
-    id: existingRoute?.id || `route_${Date.now()}`,
-    learnerId,
-    goals: routeData.goals,
-    steps: routeData.steps,
-    createdAt: existingRoute?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    route_id: existingRoute?.route_id || `route_${learnerId}_v${version}`,
+    version: version,
+    created_at: existingRoute?.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    stage_focus: routeData.stage_target || "Случайный",
+    goals: routeData.goals || [],
+    steps: routeData.steps || [],
+    statistics: {
+      total_steps: (routeData.steps || []).length,
+      completed: 0,
+      in_progress: 0,
+      pending: (routeData.steps || []).length
+    }
   };
 
   mockData.routes.set(learnerId, route);
 
+  // Calculate estimated hours
+  const estimated_total_hours = (routeData.steps || []).reduce((sum, step) => {
+    return sum + ((step.estimated_minutes || 0) / 60);
+  }, 0);
+
   return {
-    id: route.id,
-    learnerId,
-    version: route.updatedAt,
+    success: true,
+    route_id: route.route_id,
+    version: route.version,
+    is_new: is_new,
+    goals_count: route.goals.length,
+    steps_count: route.steps.length,
+    created_at: route.updated_at,
+    estimated_total_hours: Math.round(estimated_total_hours * 10) / 10
   };
 }
 
-function updateRouteStepStatus(learnerId, stepId, newStatus, comment) {
+// B3: update_route_step_status
+function updateRouteStepStatus(learnerId, stepId, newStatus, comment, actualMinutes) {
   const route = mockData.routes.get(learnerId);
   if (!route) {
     throw new Error(`Route for learner ${learnerId} not found`);
@@ -207,105 +316,186 @@ function updateRouteStepStatus(learnerId, stepId, newStatus, comment) {
     throw new Error(`Step ${stepId} not found in route`);
   }
 
+  const previous_status = step.status;
   step.status = newStatus;
-  if (comment) {
-    step.comment = comment;
-  }
-  step.updatedAt = new Date().toISOString();
+  if (comment) step.comment = comment;
+  if (actualMinutes) step.actual_minutes = actualMinutes;
 
-  route.updatedAt = new Date().toISOString();
+  const updated_at = new Date().toISOString();
+  step.updated_at = updated_at;
+
+  if (newStatus === "completed" && !step.completed_at) {
+    step.completed_at = updated_at;
+  }
+
+  route.updated_at = updated_at;
+
+  // Recalculate statistics
+  route.statistics = {
+    total_steps: route.steps.length,
+    completed: route.steps.filter(s => s.status === "completed").length,
+    in_progress: route.steps.filter(s => s.status === "in_progress").length,
+    pending: route.steps.filter(s => s.status === "pending").length
+  };
+
   mockData.routes.set(learnerId, route);
 
   return {
-    stepId,
-    status: newStatus,
-    updatedAt: step.updatedAt,
+    success: true,
+    step_id: stepId,
+    step_title: step.title,
+    previous_status: previous_status,
+    new_status: newStatus,
+    updated_at: updated_at,
+    route_progress: {
+      completed: route.statistics.completed,
+      total: route.statistics.total_steps,
+      percentage: Math.round((route.statistics.completed / route.statistics.total_steps) * 1000) / 10
+    }
   };
 }
 
-function logGuideSession(learnerId, sessionType, inputSummary, actions, usedDataRefs) {
+// C1: log_guide_session
+function logGuideSession(learnerId, sessionType, inputSummary, actions, outcome) {
   const sessions = mockData.sessions.get(learnerId) || [];
+  const session_id = `session_${new Date().toISOString().split('T')[0]}_${Date.now().toString(36)}`;
 
   const session = {
-    id: `session_${Date.now()}`,
-    learnerId,
+    session_id: session_id,
+    date: new Date().toISOString().split('T')[0],
     type: sessionType,
-    date: new Date().toISOString(),
-    summary: inputSummary,
-    actions,
-    dataRefs: usedDataRefs,
+    summary: `${inputSummary}. Действия: ${actions.join(', ')}. Результат: ${outcome || 'Сессия завершена'}`,
+    decisions: actions,
+    outcome: outcome || "Сессия завершена"
   };
 
-  sessions.push(session);
+  sessions.unshift(session);
   mockData.sessions.set(learnerId, sessions);
 
   return {
-    id: session.id,
-    learnerId,
-    createdAt: session.date,
+    success: true,
+    session_id: session_id,
+    session_type: sessionType,
+    recorded_at: new Date().toISOString(),
+    duration_estimate: "15 минут"
   };
 }
 
+// C2: get_recent_guide_sessions
 function getRecentGuideSessions(learnerId, limit = 5) {
   const sessions = mockData.sessions.get(learnerId) || [];
+  const recentSessions = sessions.slice(0, limit);
+
   return {
-    learnerId,
-    sessions: sessions.slice(-limit).reverse(),
+    sessions: recentSessions,
+    total_sessions: sessions.length,
+    period_covered: {
+      from: recentSessions[recentSessions.length - 1]?.date || new Date().toISOString().split('T')[0],
+      to: recentSessions[0]?.date || new Date().toISOString().split('T')[0]
+    }
   };
 }
 
+// D1: recalc_aggregates_for_period
 function recalcAggregatesForPeriod(learnerId, period) {
-  // In production, this would recalculate metrics from raw data
-  // For mock, we just return confirmation
+  const start_time = Date.now();
+
+  // Simulate recalculation
+  const metrics_updated = [
+    "2.1.1_hours_per_week",
+    "2.1.2_regularity_index",
+    "2.2.7_mastery_index"
+  ];
+
+  const processing_time = Date.now() - start_time;
+
   return {
-    learnerId,
-    period,
-    status: "recalculated",
-    timestamp: new Date().toISOString(),
+    success: true,
+    period: period,
+    metrics_updated: metrics_updated,
+    recalculated_at: new Date().toISOString(),
+    processing_time_ms: processing_time + 245
   };
 }
 
+// D2: get_aggregate_trends
 function getAggregateTrends(learnerId, metricKeys, period) {
-  // Mock trend data
+  const weeks = parseInt((period || "8_weeks").split('_')[0]) || 8;
+
   const trends = {};
+  const dates = [];
+
+  // Generate dates
+  for (let i = weeks - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i * 7);
+    dates.push(date.toISOString().split('T')[0]);
+  }
 
   metricKeys.forEach(key => {
-    trends[key] = {
-      metric: key,
-      period,
-      dataPoints: [
-        { date: "2024-11-01", value: 10 },
-        { date: "2024-11-08", value: 15 },
-        { date: "2024-11-15", value: 18 },
-        { date: "2024-11-22", value: 20 },
-        { date: "2024-11-29", value: 22 },
-      ],
-    };
+    if (key === "2.1.1_hours_per_week") {
+      trends[key] = {
+        values: [1.5, 2.0, 2.5, 3.0, 2.8, 3.2, 3.5, 4.0].slice(-weeks),
+        dates: dates,
+        trend: "growing",
+        change_percent: 166.7
+      };
+    } else if (key === "2.1.2_regularity_index") {
+      trends[key] = {
+        values: [0.14, 0.21, 0.28, 0.35, 0.32, 0.42, 0.50, 0.57].slice(-weeks),
+        dates: dates,
+        trend: "growing",
+        change_percent: 307.1
+      };
+    }
   });
 
   return {
-    learnerId,
-    period,
-    trends,
+    trends: trends,
+    period: {
+      weeks: weeks,
+      start: dates[0],
+      end: dates[dates.length - 1]
+    },
+    summary: "Положительная динамика по обоим показателям"
   };
 }
 
+// E1: read_entities
 function readEntities(entityType, filters, limit = 100) {
   // Mock generic entity reader
+  const mockEntities = [];
+
+  if (entityType === "slot") {
+    mockEntities.push({
+      id: "slot_123",
+      type: "slot",
+      date: "2025-12-19",
+      duration_minutes: 25,
+      status: "completed",
+      activity_type: "reading"
+    });
+  }
+
   return {
-    entityType,
-    filters,
-    count: 0,
-    entities: [],
+    entities: mockEntities,
+    total_count: mockEntities.length,
+    returned_count: mockEntities.length,
+    has_more: false
   };
 }
 
+// E2: upsert_entity
 function upsertEntity(entityType, entityId, data) {
-  // Mock generic entity upsert
+  const entity_id = entityId || `${entityType}_${Date.now()}`;
+  const operation = entityId ? "updated" : "created";
+
   return {
-    entityType,
-    id: entityId || `${entityType}_${Date.now()}`,
-    updatedAt: new Date().toISOString(),
+    success: true,
+    entity_id: entity_id,
+    entity_type: entityType,
+    operation: operation,
+    timestamp: new Date().toISOString()
   };
 }
 
@@ -329,25 +519,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Group A: Diagnostics and Learner Stages
       {
         name: "get_learner_summary",
-        description: "Get summary for a learner for a specified period. Returns total hours, sessions, pomodoros, completed tasks, and club activity.",
+        description: "Сводка по ученику за период — базовая статистика активности. Returns total hours, sessions, pomodoros, tasks, and club activity.",
         inputSchema: {
           type: "object",
           properties: {
             period_start: {
               type: "string",
-              description: "Period start date (ISO format, optional)",
+              description: "Period start date (ISO format YYYY-MM-DD, optional)",
             },
             period_end: {
               type: "string",
-              description: "Period end date (ISO format, optional)",
+              description: "Period end date (ISO format YYYY-MM-DD, optional)",
             },
+            period: {
+              type: "string",
+              enum: ["4_weeks"],
+              description: "Preset period (alternative to dates)"
+            }
           },
           required: [],
         },
       },
       {
         name: "get_learner_core_metrics",
-        description: "Get core derived metrics (2.*) for learner stage analysis. Returns hours, regularity, practice level, mastery, current stage, and stuck profile.",
+        description: "Ядро производных показателей (IND.2.*) для анализа ступени. Returns core metrics, interpretation, and period info.",
         inputSchema: {
           type: "object",
           properties: {
@@ -362,13 +557,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "get_stage_history",
-        description: "Get history of learner stage changes with dates, stages, comments, and key metrics.",
+        description: "История смены ступеней Ученика. Returns list of stage transitions with dates, reasons, and metrics.",
         inputSchema: {
           type: "object",
           properties: {
             limit: {
               type: "number",
-              description: "Maximum number of records to return",
+              description: "Maximum number of records to return (default: 10)",
             },
           },
           required: [],
@@ -376,14 +571,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "upsert_learner_stage_evaluation",
-        description: "Record or update learner stage evaluation. Creates a new entry in stage history.",
+        description: "Записать или обновить оценку ступени. Creates new entry in stage history (IND.2.4.2 and IND.2.4.3).",
         inputSchema: {
           type: "object",
           properties: {
             stage: {
               type: "string",
-              enum: ["Случайный", "Практикующий", "Систематический", "Дисциплинированный", "Проактивный"],
-              description: "Learner stage",
+              enum: ["Случайный", "Практикующий", "Систематический", "Дисциплинированный", "Проактивный", "Random", "Practicing", "Systematic", "Disciplined", "Proactive"],
+              description: "Learner stage (Russian or English)",
             },
             reason: {
               type: "string",
@@ -393,6 +588,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               description: "Snapshot of key metrics at this evaluation",
             },
+            confidence: {
+              type: "number",
+              description: "Confidence score 0-1 (optional)"
+            }
           },
           required: ["stage", "reason"],
         },
@@ -401,7 +600,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Group B: Route and Route Steps
       {
         name: "get_learning_route",
-        description: "Get current learning route for a learner with goals, steps, and their statuses.",
+        description: "Получить текущий маршрут Ученика. Returns complete route with goals, steps, and statistics.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -410,7 +609,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "upsert_learning_route",
-        description: "Create or update learning route with goals and steps.",
+        description: "Создать или обновить маршрут. Creates/updates route with goals and steps.",
         inputSchema: {
           type: "object",
           properties: {
@@ -418,8 +617,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "object",
               properties: {
                 goals: {
-                  type: "string",
-                  description: "Route goals description",
+                  type: "array",
+                  description: "Array of goals",
+                  items: {
+                    type: "object",
+                    properties: {
+                      description: { type: "string" },
+                      target_date: { type: "string" },
+                      priority: { type: "number" }
+                    }
+                  }
                 },
                 steps: {
                   type: "array",
@@ -427,13 +634,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   items: {
                     type: "object",
                     properties: {
-                      id: { type: "string" },
                       title: { type: "string" },
-                      status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+                      description: { type: "string" },
+                      type: { type: "string", enum: ["setup", "daily_habit", "weekly_reflection", "assessment"] },
                       priority: { type: "number" },
+                      estimated_minutes: { type: "number" }
                     },
                   },
                 },
+                focus: { type: "string", description: "Focus area (e.g., 'regularity')" },
+                stage_target: { type: "string", description: "Target stage" },
+                notes: { type: "string", description: "Additional notes" }
               },
               required: ["goals", "steps"],
             },
@@ -443,7 +654,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "update_route_step_status",
-        description: "Update status of a specific route step.",
+        description: "Обновить статус шага маршрута. Updates step status and recalculates progress.",
         inputSchema: {
           type: "object",
           properties: {
@@ -453,13 +664,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             new_status: {
               type: "string",
-              enum: ["pending", "in_progress", "completed"],
+              enum: ["pending", "in_progress", "completed", "skipped", "blocked"],
               description: "New step status",
             },
             comment: {
               type: "string",
               description: "Optional comment about the status change",
             },
+            actual_minutes: {
+              type: "number",
+              description: "Actual time spent in minutes (optional)"
+            }
           },
           required: ["step_id", "new_status"],
         },
@@ -468,13 +683,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Group C: Guide Sessions and Events
       {
         name: "log_guide_session",
-        description: "Record a guide session with type, summary, actions taken, and data references used.",
+        description: "Зафиксировать сессию Проводника. Records guide session with type, summary, actions, and outcome.",
         inputSchema: {
           type: "object",
           properties: {
             session_type: {
               type: "string",
-              enum: ["one_time", "weekly", "transition", "reactivation"],
+              enum: ["initial", "weekly", "transition", "reactivation", "check_in"],
               description: "Type of guide session",
             },
             input_summary: {
@@ -486,24 +701,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               items: { type: "string" },
               description: "Actions taken during session",
             },
-            used_data_refs: {
+            used_tools: {
               type: "array",
               items: { type: "string" },
-              description: "References to data used in decision making",
+              description: "MCP tools used in session",
             },
+            outcome: {
+              type: "string",
+              description: "Session outcome"
+            },
+            next_session_hint: {
+              type: "string",
+              description: "Hint for next session"
+            }
           },
           required: ["session_type", "input_summary", "actions"],
         },
       },
       {
         name: "get_recent_guide_sessions",
-        description: "Get recent guide sessions for dialog context.",
+        description: "Получить последние сессии для контекста диалога. Returns recent sessions with summaries.",
         inputSchema: {
           type: "object",
           properties: {
             limit: {
               type: "number",
-              description: "Maximum number of sessions to return",
+              description: "Maximum number of sessions to return (default: 5)",
             },
           },
           required: [],
@@ -513,33 +736,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Group D: Aggregates and Dynamics
       {
         name: "recalc_aggregates_for_period",
-        description: "Recalculate derived metrics (2.*) for a specified period.",
+        description: "Пересчитать производные показатели (IND.2.*) за период. Recalculates metrics from raw data.",
         inputSchema: {
           type: "object",
           properties: {
             period: {
               type: "string",
-              description: "Period to recalculate (e.g., '1_week', '4_weeks')",
+              enum: ["day", "week", "month"],
+              description: "Period to recalculate",
             },
+            force: {
+              type: "boolean",
+              description: "Force recalculation even if recent (optional)"
+            }
           },
           required: ["period"],
         },
       },
       {
         name: "get_aggregate_trends",
-        description: "Get time series trends for specified metrics.",
+        description: "Получить динамику ключевых показателей. Returns time series data for specified metrics.",
         inputSchema: {
           type: "object",
           properties: {
             metric_keys: {
               type: "array",
               items: { type: "string" },
-              description: "List of metric keys to get trends for (e.g., ['2.1.1', '2.2.1'])",
+              description: "List of metric keys (e.g., ['2.1.1_hours_per_week', '2.1.2_regularity_index'])",
             },
             period: {
               type: "string",
-              description: "Period for trend analysis",
+              description: "Period for trend analysis (e.g., '8_weeks')",
             },
+            granularity: {
+              type: "string",
+              enum: ["day", "week", "month"],
+              description: "Data point granularity"
+            }
           },
           required: ["metric_keys", "period"],
         },
@@ -548,13 +781,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Group E: Universal Tools
       {
         name: "read_entities",
-        description: "Generic tool to read entities by filters.",
+        description: "Читать сущности по фильтрам (универсальный доступ). Generic entity reading with filters.",
         inputSchema: {
           type: "object",
           properties: {
             entity_type: {
               type: "string",
-              description: "Type of entity to read",
+              description: "Type of entity to read (e.g., 'slot', 'task')",
             },
             filters: {
               type: "object",
@@ -562,15 +795,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             limit: {
               type: "number",
-              description: "Maximum number of entities to return",
+              description: "Maximum number of entities to return (default: 20)",
             },
+            order_by: {
+              type: "string",
+              description: "Field to order by"
+            },
+            order_direction: {
+              type: "string",
+              enum: ["asc", "desc"],
+              description: "Sort direction"
+            }
           },
           required: ["entity_type"],
         },
       },
       {
         name: "upsert_entity",
-        description: "Generic tool to create or update an entity.",
+        description: "Создать или обновить сущность (универсальная запись). Generic entity create/update.",
         inputSchema: {
           type: "object",
           properties: {
@@ -647,7 +889,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           learnerId,
           args.step_id,
           args.new_status,
-          args.comment
+          args.comment,
+          args.actual_minutes
         );
         break;
 
@@ -658,7 +901,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           args.session_type,
           args.input_summary,
           args.actions,
-          args.used_data_refs
+          args.outcome
         );
         break;
 
@@ -718,6 +961,8 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Digital Twin MCP Server running on stdio");
+  console.error("Default learner_id: learner_001");
+  console.error("Mock data loaded with JSON schemas from MCP spec v2.0");
 }
 
 main().catch((error) => {
