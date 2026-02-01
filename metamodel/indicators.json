@@ -1,0 +1,185 @@
+{
+  "version": "0.1",
+  "indicators": [
+    {
+      "code": "IND.2.1.1",
+      "name": "Среднее число часов саморазвития в неделю",
+      "name_en": "Average self-development hours per week",
+      "group": "2.1",
+      "type": "temporal",
+      "format": "float",
+      "unit": "hours/week",
+      "thresholds": {
+        "STG.Student.Random": {"max": 0.5},
+        "STG.Student.Practicing": {"min": 4},
+        "STG.Student.Systematic": {"min": 6},
+        "STG.Student.Disciplined": {"min": 8},
+        "STG.Student.Proactive": {"min": 10}
+      }
+    },
+    {
+      "code": "IND.2.1.2",
+      "name": "Доля дней со слотом (регулярность)",
+      "name_en": "Proportion of days with learning slot",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "float",
+      "unit": "ratio",
+      "min_value": 0,
+      "max_value": 1,
+      "thresholds": {
+        "STG.Student.Random": {"max": 0.14},
+        "STG.Student.Practicing": {"min": 0.43},
+        "STG.Student.Systematic": {"min": 0.71},
+        "STG.Student.Disciplined": {"min": 0.86},
+        "STG.Student.Proactive": {"min": 0.95}
+      }
+    },
+    {
+      "code": "IND.2.1.4",
+      "name": "Устойчивость слотов (серии дней подряд)",
+      "name_en": "Slot stability (consecutive days streak)",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "integer",
+      "unit": "days",
+      "thresholds": {
+        "STG.Student.Random": {"max": 0},
+        "STG.Student.Practicing": {"min": 3},
+        "STG.Student.Systematic": {"min": 4},
+        "STG.Student.Disciplined": {"min": 5},
+        "STG.Student.Proactive": {"min": 6}
+      }
+    },
+    {
+      "code": "IND.2.1.6",
+      "name": "Индекс регулярности (интегральный)",
+      "name_en": "Regularity index (integral)",
+      "group": "2.1",
+      "type": "scale",
+      "format": "float",
+      "min_value": 0,
+      "max_value": 5,
+      "computed_from": ["IND.2.1.1", "IND.2.1.2", "IND.2.1.4"]
+    },
+    {
+      "code": "IND.2.2.1",
+      "name": "Интенсивность практики (заданий в неделю)",
+      "name_en": "Practice intensity (tasks per week)",
+      "group": "2.2",
+      "type": "frequency",
+      "format": "float",
+      "unit": "tasks/week"
+    },
+    {
+      "code": "IND.2.2.7",
+      "name": "Интегральный индекс степени мастерства",
+      "name_en": "Integral mastery index",
+      "group": "2.2",
+      "type": "scale",
+      "format": "float",
+      "min_value": 0,
+      "max_value": 5,
+      "computed_from": ["IND.2.2.1", "IND.2.2.2", "IND.2.2.6"]
+    },
+    {
+      "code": "IND.2.3.2",
+      "name": "Частота рефлексий (заметок в неделю)",
+      "name_en": "Reflection frequency (notes per week)",
+      "group": "2.3",
+      "type": "frequency",
+      "format": "float",
+      "unit": "notes/week",
+      "thresholds": {
+        "STG.Student.Random": {"max": 0},
+        "STG.Student.Practicing": {"max": 0},
+        "STG.Student.Systematic": {"min": 5},
+        "STG.Student.Disciplined": {"min": 6},
+        "STG.Student.Proactive": {"min": 6.7}
+      }
+    },
+    {
+      "code": "IND.2.4.2",
+      "name": "Внутренняя ступень Ученика",
+      "name_en": "Internal student stage",
+      "group": "2.4",
+      "type": "categorical",
+      "format": "enum",
+      "enum_values": [
+        "STG.Student.Random",
+        "STG.Student.Practicing",
+        "STG.Student.Systematic",
+        "STG.Student.Disciplined",
+        "STG.Student.Proactive"
+      ]
+    },
+    {
+      "code": "IND.2.4.3",
+      "name": "История смены ступеней",
+      "name_en": "Stage change history",
+      "group": "2.4",
+      "type": "structural",
+      "format": "array",
+      "item_schema": {
+        "date": "date",
+        "stage": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "code": "IND.2.8.1",
+      "name": "Индекс платёжной вовлечённости",
+      "name_en": "Payment engagement index",
+      "group": "2.8",
+      "type": "scale",
+      "format": "float",
+      "min_value": 0,
+      "max_value": 5
+    },
+    {
+      "code": "IND.2.8.2",
+      "name": "Индекс удержания",
+      "name_en": "Retention index",
+      "group": "2.8",
+      "type": "temporal",
+      "format": "float",
+      "unit": "months"
+    },
+    {
+      "code": "IND.2.8.3",
+      "name": "Индекс ценность/затраты",
+      "name_en": "Value/cost index",
+      "group": "2.8",
+      "type": "scale",
+      "format": "float"
+    },
+    {
+      "code": "IND.2.9.1",
+      "name": "Взаимодействие с ИИ",
+      "name_en": "AI interaction",
+      "group": "2.9",
+      "type": "frequency",
+      "format": "float",
+      "unit": "sessions/week"
+    },
+    {
+      "code": "IND.2.9.2",
+      "name": "Глубина работы с ИИ",
+      "name_en": "AI work depth",
+      "group": "2.9",
+      "type": "scale",
+      "format": "float",
+      "min_value": 0,
+      "max_value": 1
+    },
+    {
+      "code": "IND.2.10.1",
+      "name": "Профиль застревания",
+      "name_en": "Stagnation profile",
+      "group": "2.10",
+      "type": "categorical",
+      "format": "enum",
+      "enum_values": ["Хаос", "Тупик", "Поворот"]
+    }
+  ]
+}
