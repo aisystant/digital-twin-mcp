@@ -1,5 +1,7 @@
 {
-  "version": "0.2",
+  "version": "0.3",
+  "description": "Ступени внутри Степени квалификации «Ученик» (DEG.Student)",
+  "degree_ref": "DEG.Student",
   "stages": [
     {
       "code": "STG.Student.Random",
