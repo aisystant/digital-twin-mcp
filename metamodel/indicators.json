@@ -1,6 +1,60 @@
 {
-  "version": "0.1",
+  "version": "0.2",
   "indicators": [
+    {
+      "code": "IND.1.PREF.daily_task_time",
+      "name": "Время получения задания",
+      "name_en": "Daily task time",
+      "group": "1.PREF",
+      "category": "primary",
+      "type": "setting",
+      "format": "time",
+      "unit": "HH:MM",
+      "description": "Предпочтительное время для получения ежедневного задания"
+    },
+    {
+      "code": "IND.1.PREF.daily_report_time",
+      "name": "Время отчёта",
+      "name_en": "Daily report time",
+      "group": "1.PREF",
+      "category": "primary",
+      "type": "setting",
+      "format": "time",
+      "unit": "HH:MM",
+      "description": "Предпочтительное время для отправки ежедневного отчёта"
+    },
+    {
+      "code": "IND.1.PREF.role_set",
+      "name": "Текущие роли",
+      "name_en": "Current roles",
+      "group": "1.PREF",
+      "category": "primary",
+      "type": "setting",
+      "format": "array",
+      "item_type": "string",
+      "description": "Набор ролей, которые пользователь практикует"
+    },
+    {
+      "code": "IND.1.PREF.domain_focus",
+      "name": "Области интереса",
+      "name_en": "Domain focus",
+      "group": "1.PREF",
+      "category": "primary",
+      "type": "setting",
+      "format": "array",
+      "item_type": "string",
+      "description": "Приоритетные области для изучения и практики"
+    },
+    {
+      "code": "IND.1.PREF.objective",
+      "name": "Цели обучения",
+      "name_en": "Learning objectives",
+      "group": "1.PREF",
+      "category": "primary",
+      "type": "setting",
+      "format": "structured_text",
+      "description": "Структурированное описание целей обучения"
+    },
     {
       "code": "IND.2.1.1",
       "name": "Среднее число часов саморазвития в неделю",
@@ -125,6 +179,17 @@
         "stage": "string",
         "reason": "string"
       }
+    },
+    {
+      "code": "IND.2.6.1",
+      "name": "Индекс ресурсности",
+      "name_en": "Resource index",
+      "group": "2.6",
+      "type": "scale",
+      "format": "float",
+      "min_value": 0,
+      "max_value": 5,
+      "description": "Интегральный показатель ресурсного состояния и устойчивости обучения"
     },
     {
       "code": "IND.2.8.1",
