@@ -1,0 +1,32 @@
+{
+  "i": {
+    "agency": {
+      "role_set": ["developer", "learner"],
+      "goals": [
+        {"goal": "Master MCP protocol", "priority": 1}
+      ],
+      "daily_task_time": [
+        {"task": "coding", "minutes": 60}
+      ]
+    },
+    "data": {
+      "time_invested": {
+        "total_hours": 12.5,
+        "sessions_count": 18
+      },
+      "progress": {
+        "mcp": 0.3
+      }
+    },
+    "info": {
+      "profile": {
+        "name": "Learner",
+        "level": "beginner"
+      },
+      "preferences": {
+        "style": "hands-on",
+        "pace": "moderate"
+      }
+    }
+  }
+}
