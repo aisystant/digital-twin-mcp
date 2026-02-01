@@ -1,69 +1,105 @@
 {
-  "version": "0.3",
-  "description": "Блоки мета-модели цифрового двойника стажёра",
+  "version": "0.4",
+  "description": "Группы показателей мета-модели цифрового двойника (нотация ecosystem-development)",
   "groups": [
     {
-      "code": "0",
-      "name": "Общие данные о стажёре",
-      "name_en": "General Trainee Data",
+      "code": "1.PREF",
+      "name": "Настройки и предпочтения",
+      "name_en": "Settings and Preferences",
       "category": "primary",
       "for_prompts": true,
       "for_qualification": false,
-      "description": "Настройки, предпочтения и базовая информация о стажёре"
+      "description": "Настраиваемые параметры стажёра: цели, роли, расписание, план развития"
     },
     {
-      "code": "1",
-      "name": "План развития",
-      "name_en": "Development Plan",
-      "category": "primary",
-      "for_prompts": true,
-      "for_qualification": false,
-      "description": "Целевые показатели, руководства, бюджет времени и фокусные методы"
-    },
-    {
-      "code": "2",
-      "name": "Квалификация",
-      "name_en": "Qualification",
-      "category": "derived",
-      "for_prompts": true,
-      "for_qualification": true,
-      "description": "Ступень квалификации, история переходов и критерии присвоения"
-    },
-    {
-      "code": "3",
-      "name": "Агентность",
-      "name_en": "Agency",
+      "code": "2.1",
+      "name": "Агентность и учебный ритм",
+      "name_en": "Agency and Learning Rhythm",
       "category": "derived",
       "for_prompts": false,
       "for_qualification": true,
-      "description": "Регулярность, устойчивость слотов, рефлексии и стратегирование"
+      "description": "Время, регулярность, стабильность слотов, срывы"
     },
     {
-      "code": "4",
+      "code": "2.2",
       "name": "Степень мастерства",
       "name_en": "Mastery Level",
       "category": "derived",
       "for_prompts": false,
       "for_qualification": true,
-      "description": "Инвестированное время, практики, мировоззрение, привычки и потенциал"
+      "description": "Интенсивность практики, рабочие продукты, мировоззрение, привычки"
     },
     {
-      "code": "5",
-      "name": "Поддерживающая ресурсность",
-      "name_en": "Supporting Resourcefulness",
+      "code": "2.3",
+      "name": "Характеристики по ступеням",
+      "name_en": "Stage Characteristics",
       "category": "derived",
       "for_prompts": false,
       "for_qualification": true,
-      "description": "Контроль инфопотока, продуктивность состояния, ритм и восстановление"
+      "description": "Рефлексия, окружение, паттерны поведения, мемы"
     },
     {
-      "code": "6",
-      "name": "Адаптивность и устойчивость",
-      "name_en": "Adaptability and Resilience",
+      "code": "2.4",
+      "name": "Квалификация",
+      "name_en": "Qualification",
+      "category": "derived",
+      "for_prompts": true,
+      "for_qualification": true,
+      "description": "Текущая ступень, история переходов, критерии присвоения"
+    },
+    {
+      "code": "2.5",
+      "name": "Мастерство по ролям",
+      "name_en": "Role Mastery",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": false,
+      "description": "Ролевой профиль, индексы по ролям (Ученик, Интеллектуал, Профессионал)"
+    },
+    {
+      "code": "2.6",
+      "name": "Ресурсность и устойчивость",
+      "name_en": "Resourcefulness and Resilience",
       "category": "derived",
       "for_prompts": false,
       "for_qualification": true,
-      "description": "Срывы, восстановление, гибкость, паттерны поведения и мемы"
+      "description": "Состояние, ритм, восстановление, гибкость пересборки"
+    },
+    {
+      "code": "2.7",
+      "name": "Сообщество и вклад",
+      "name_en": "Community and Contribution",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": false,
+      "description": "Активность в клубе, менторство, вклад в культуру"
+    },
+    {
+      "code": "2.8",
+      "name": "Экономика участия",
+      "name_en": "Participation Economics",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": false,
+      "description": "Платёжная вовлечённость, удержание, ценность/затраты"
+    },
+    {
+      "code": "2.9",
+      "name": "Использование ИИ",
+      "name_en": "AI Usage",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": false,
+      "description": "Взаимодействие с ИИ, глубина работы"
+    },
+    {
+      "code": "2.10",
+      "name": "Интегральные профили",
+      "name_en": "Integral Profiles",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": false,
+      "description": "Профиль застревания, риск выгорания, подмена деятельности"
     }
   ]
 }
