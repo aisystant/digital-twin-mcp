@@ -1,72 +1,69 @@
 {
-  "version": "0.2",
+  "version": "0.3",
+  "description": "Блоки мета-модели цифрового двойника стажёра",
   "groups": [
     {
-      "code": "1.PREF",
-      "name": "Настройки и предпочтения",
-      "name_en": "Settings and Preferences",
+      "code": "0",
+      "name": "Общие данные о стажёре",
+      "name_en": "General Trainee Data",
       "category": "primary",
-      "description": "Первичные показатели настроек пользователя"
+      "for_prompts": true,
+      "for_qualification": false,
+      "description": "Настройки, предпочтения и базовая информация о стажёре"
     },
     {
-      "code": "2.1",
-      "name": "Агентность и учебный ритм",
-      "name_en": "Agency and Learning Rhythm",
-      "description": "Показатели времени и регулярности саморазвития"
+      "code": "1",
+      "name": "План развития",
+      "name_en": "Development Plan",
+      "category": "primary",
+      "for_prompts": true,
+      "for_qualification": false,
+      "description": "Целевые показатели, руководства, бюджет времени и фокусные методы"
     },
     {
-      "code": "2.2",
-      "name": "Степень мастерства",
-      "name_en": "Mastery Level",
-      "description": "Показатели интенсивности практики и глубины освоения"
-    },
-    {
-      "code": "2.3",
-      "name": "Характеристики по ступеням",
-      "name_en": "Stage Characteristics",
-      "description": "Рефлексия и качественные характеристики обучения"
-    },
-    {
-      "code": "2.4",
+      "code": "2",
       "name": "Квалификация",
       "name_en": "Qualification",
-      "description": "Текущая ступень и история прогресса"
+      "category": "derived",
+      "for_prompts": true,
+      "for_qualification": true,
+      "description": "Ступень квалификации, история переходов и критерии присвоения"
     },
     {
-      "code": "2.5",
-      "name": "Мастерство по ролям",
-      "name_en": "Role Mastery",
-      "description": "Уровень владения различными ролями"
+      "code": "3",
+      "name": "Агентность",
+      "name_en": "Agency",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": true,
+      "description": "Регулярность, устойчивость слотов, рефлексии и стратегирование"
     },
     {
-      "code": "2.6",
-      "name": "Ресурсность и устойчивость",
-      "name_en": "Resource and Sustainability",
-      "description": "Устойчивость обучения и ресурсное состояние"
+      "code": "4",
+      "name": "Степень мастерства",
+      "name_en": "Mastery Level",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": true,
+      "description": "Инвестированное время, практики, мировоззрение, привычки и потенциал"
     },
     {
-      "code": "2.7",
-      "name": "Сообщество и вклад",
-      "name_en": "Community and Contribution",
-      "description": "Участие в сообществе и вклад в общее дело"
+      "code": "5",
+      "name": "Поддерживающая ресурсность",
+      "name_en": "Supporting Resourcefulness",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": true,
+      "description": "Контроль инфопотока, продуктивность состояния, ритм и восстановление"
     },
     {
-      "code": "2.8",
-      "name": "Экономика участия",
-      "name_en": "Participation Economics",
-      "description": "Экономические показатели вовлечённости"
-    },
-    {
-      "code": "2.9",
-      "name": "Использование ИИ",
-      "name_en": "AI Usage",
-      "description": "Взаимодействие с AI-инструментами"
-    },
-    {
-      "code": "2.10",
-      "name": "Интегральные профили",
-      "name_en": "Integral Profiles",
-      "description": "Комплексные профили и паттерны поведения"
+      "code": "6",
+      "name": "Адаптивность и устойчивость",
+      "name_en": "Adaptability and Resilience",
+      "category": "derived",
+      "for_prompts": false,
+      "for_qualification": true,
+      "description": "Срывы, восстановление, гибкость, паттерны поведения и мемы"
     }
   ]
 }
