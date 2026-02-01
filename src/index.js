@@ -12,6 +12,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
 const DATA_PATH = path.join(__dirname, "..", "data", "twin.json");
 
+// Load metamodel JSON files
+async function loadMetamodel() {
+  const [stagesData, groupsData, indicatorsData] = await Promise.all([
+    fs.readFile(path.join(METAMODEL_PATH, "stages.json"), "utf-8"),
+    fs.readFile(path.join(METAMODEL_PATH, "groups.json"), "utf-8"),
+    fs.readFile(path.join(METAMODEL_PATH, "indicators.json"), "utf-8"),
+  ]);
+  return {
+    stages: JSON.parse(stagesData),
+    groups: JSON.parse(groupsData),
+    indicators: JSON.parse(indicatorsData),
+  };
+}
+
 // Helper: read and parse twin data
 async function readTwinData() {
   const content = await fs.readFile(DATA_PATH, "utf-8");
@@ -28,7 +42,7 @@ function normalizePath(pathStr) {
   return pathStr.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
 }
 
-// Helper: get value by path (accepts both "i.agency.role_set" and "i/agency/role_set")
+// Helper: get value by path (accepts both "indicators.agency.role_set" and "indicators/agency/role_set")
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -148,6 +162,40 @@ async function describeByPath(pathArg) {
   }
 }
 
+// Tool: get_stages - returns all student stages
+async function getStages() {
+  const metamodel = await loadMetamodel();
+  return metamodel.stages;
+}
+
+// Tool: get_indicator_groups - returns all indicator groups
+async function getIndicatorGroups() {
+  const metamodel = await loadMetamodel();
+  return metamodel.groups;
+}
+
+// Tool: get_indicators - returns indicators, optionally filtered by group
+async function getIndicators(groupCode) {
+  const metamodel = await loadMetamodel();
+  if (groupCode) {
+    return {
+      ...metamodel.indicators,
+      indicators: metamodel.indicators.indicators.filter(ind => ind.group === groupCode)
+    };
+  }
+  return metamodel.indicators;
+}
+
+// Tool: get_indicator - returns a single indicator by code
+async function getIndicator(code) {
+  const metamodel = await loadMetamodel();
+  const indicator = metamodel.indicators.indicators.find(ind => ind.code === code);
+  if (!indicator) {
+    return { error: `Indicator not found: ${code}` };
+  }
+  return indicator;
+}
+
 // Tool: read_digital_twin - reads twin data by path
 async function readDigitalTwin(pathArg) {
   const data = await readTwinData();
@@ -194,10 +242,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             path: {
               type: "string",
-              description: "Path in metamodel. Both dots and slashes work (e.g., 'i', 'i/agency', 'i.agency')",
+              description: "Path in metamodel. Both dots and slashes work (e.g., 'indicators', 'indicators/agency', 'indicators.agency')",
             },
           },
           required: ["path"],
+        },
+      },
+      {
+        name: "get_stages",
+        description:
+          "Get all student stages (STG.Student.*) with their properties and thresholds periods.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "get_indicator_groups",
+        description:
+          "Get all indicator groups (2.1, 2.2, ... 2.10) with their names and descriptions.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "get_indicators",
+        description:
+          "Get indicators from the metamodel. Optionally filter by group code.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            group: {
+              type: "string",
+              description: "Optional group code to filter indicators (e.g., '2.1', '2.2')",
+            },
+          },
+        },
+      },
+      {
+        name: "get_indicator",
+        description:
+          "Get a single indicator by its code with full details including thresholds.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: {
+              type: "string",
+              description: "Indicator code (e.g., 'IND.2.1.1', 'IND.2.4.2')",
+            },
+          },
+          required: ["code"],
         },
       },
       {
@@ -210,7 +305,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'i.agency.role_set', 'i/agency/role_set')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'indicators/agency/role_set')",
             },
           },
           required: ["path"],
@@ -226,7 +321,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'i.agency.role_set', 'i/agency/goals')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'indicators/agency/goals')",
             },
             data: {
               description: "Data to write (any JSON value)",
@@ -248,6 +343,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const result = await describeByPath(args.path);
       return {
         content: [{ type: "text", text: result }],
+      };
+    }
+
+    if (name === "get_stages") {
+      const result = await getStages();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (name === "get_indicator_groups") {
+      const result = await getIndicatorGroups();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (name === "get_indicators") {
+      const result = await getIndicators(args.group);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (name === "get_indicator") {
+      const result = await getIndicator(args.code);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
       };
     }
 
@@ -292,7 +435,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Digital Twin MCP Server running on stdio");
-  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
+  console.error("Tools: describe_by_path, get_stages, get_indicator_groups, get_indicators, get_indicator, read_digital_twin, write_digital_twin");
 }
 
 main().catch((error) => {

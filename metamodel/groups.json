@@ -1,0 +1,65 @@
+{
+  "version": "0.1",
+  "groups": [
+    {
+      "code": "2.1",
+      "name": "Агентность и учебный ритм",
+      "name_en": "Agency and Learning Rhythm",
+      "description": "Показатели времени и регулярности саморазвития"
+    },
+    {
+      "code": "2.2",
+      "name": "Степень мастерства",
+      "name_en": "Mastery Level",
+      "description": "Показатели интенсивности практики и глубины освоения"
+    },
+    {
+      "code": "2.3",
+      "name": "Характеристики по ступеням",
+      "name_en": "Stage Characteristics",
+      "description": "Рефлексия и качественные характеристики обучения"
+    },
+    {
+      "code": "2.4",
+      "name": "Квалификация",
+      "name_en": "Qualification",
+      "description": "Текущая ступень и история прогресса"
+    },
+    {
+      "code": "2.5",
+      "name": "Мастерство по ролям",
+      "name_en": "Role Mastery",
+      "description": "Уровень владения различными ролями"
+    },
+    {
+      "code": "2.6",
+      "name": "Ресурсность и устойчивость",
+      "name_en": "Resource and Sustainability",
+      "description": "Устойчивость обучения и ресурсное состояние"
+    },
+    {
+      "code": "2.7",
+      "name": "Сообщество и вклад",
+      "name_en": "Community and Contribution",
+      "description": "Участие в сообществе и вклад в общее дело"
+    },
+    {
+      "code": "2.8",
+      "name": "Экономика участия",
+      "name_en": "Participation Economics",
+      "description": "Экономические показатели вовлечённости"
+    },
+    {
+      "code": "2.9",
+      "name": "Использование ИИ",
+      "name_en": "AI Usage",
+      "description": "Взаимодействие с AI-инструментами"
+    },
+    {
+      "code": "2.10",
+      "name": "Интегральные профили",
+      "name_en": "Integral Profiles",
+      "description": "Комплексные профили и паттерны поведения"
+    }
+  ]
+}

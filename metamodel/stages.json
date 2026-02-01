@@ -1,0 +1,45 @@
+{
+  "version": "0.1",
+  "stages": [
+    {
+      "code": "STG.Student.Random",
+      "name": "Случайный",
+      "name_en": "Random",
+      "period_weeks": 1,
+      "order": 1,
+      "description": "Начальная ступень без устойчивого учебного ритма"
+    },
+    {
+      "code": "STG.Student.Practicing",
+      "name": "Практикующий",
+      "name_en": "Practicing",
+      "period_weeks": 4,
+      "order": 2,
+      "description": "Регулярная практика с минимальными требованиями"
+    },
+    {
+      "code": "STG.Student.Systematic",
+      "name": "Систематический",
+      "name_en": "Systematic",
+      "period_weeks": 8,
+      "order": 3,
+      "description": "Систематическое обучение с рефлексией"
+    },
+    {
+      "code": "STG.Student.Disciplined",
+      "name": "Дисциплинированный",
+      "name_en": "Disciplined",
+      "period_weeks": 12,
+      "order": 4,
+      "description": "Высокая дисциплина и устойчивые привычки"
+    },
+    {
+      "code": "STG.Student.Proactive",
+      "name": "Проактивный",
+      "name_en": "Proactive",
+      "period_weeks": 24,
+      "order": 5,
+      "description": "Максимальная вовлечённость и проактивность"
+    }
+  ]
+}
