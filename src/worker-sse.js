@@ -1,47 +1,28 @@
 /**
- * Digital Twin MCP Server - HTTP Transport
- * Tools: describe_by_path, read_digital_twin, write_digital_twin
+ * Digital Twin MCP Server - Cloudflare Workers (HTTP Transport)
+ *
+ * Tools:
+ * - Metamodel: get_degrees, get_stages, get_indicator_groups, get_indicators, get_indicator, get_stage_thresholds, validate_value
+ * - Data: read_digital_twin, write_digital_twin
  */
 
-// Metamodel definition (inline)
-const METAMODEL = {
-  i: {
-    _meta: { description: "Root of digital twin data" },
-    agency: {
-      _meta: { description: "Learner's agency and self-organization" },
-      role_set: { type: "set", description: "Current set of learner roles" },
-      goals: { type: "list", description: "Learning goals with priorities" },
-      daily_task_time: { type: "list", description: "Daily time allocation for tasks" },
-    },
-    data: {
-      _meta: { description: "Objective measurements and metrics" },
-      time_invested: { type: "object", description: "Time investment summary" },
-      progress: { type: "object", description: "Learning progress by topic" },
-    },
-    info: {
-      _meta: { description: "Static learner information" },
-      profile: { type: "object", description: "Basic learner profile" },
-      preferences: { type: "object", description: "Learning preferences" },
-    },
-  },
-};
+// Import metamodel JSON files (bundled at build time)
+import stages from "../metamodel/stages.json";
+import groups from "../metamodel/groups.json";
+import indicators from "../metamodel/indicators.json";
+import degrees from "../metamodel/degrees.json";
 
-// Twin data (in-memory, resets on restart)
+// Twin data (in-memory, resets on cold start)
+// TODO: Move to KV or D1 for persistence
 let twinData = {
-  i: {
-    agency: {
-      role_set: ["developer", "learner"],
-      goals: [{ goal: "Master MCP protocol", priority: 1 }],
-      daily_task_time: [{ task: "coding", minutes: 60 }],
-    },
-    data: {
-      time_invested: { total_hours: 12.5, sessions_count: 18 },
-      progress: { mcp: 0.3 },
-    },
-    info: {
-      profile: { name: "Learner", level: "beginner" },
-      preferences: { style: "hands-on", pace: "moderate" },
-    },
+  degree: "DEG.Student",
+  stage: "STG.Student.Practicing",
+  indicators: {
+    "IND.1.PREF.objective": "Освоить системное мышление",
+    "IND.1.PREF.role_set": ["developer", "learner"],
+    "IND.1.PREF.weekly_time_budget": 10,
+    "IND.2.1.1": 8.5,
+    "IND.2.1.2": 0.85,
   },
 };
 
@@ -72,24 +53,157 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Tool: describe_by_path
-function describeByPath(pathArg) {
-  const normalized = normalizePath(pathArg);
-  const node = getByPath(METAMODEL, normalized);
+// ============ Metamodel Tools ============
 
-  if (!node) return `Error: Path not found: ${pathArg}`;
-
-  const results = [];
-  for (const [key, val] of Object.entries(node)) {
-    if (key === "_meta") continue;
-    if (val._meta) {
-      results.push(`${key}:section:${val._meta.description}`);
-    } else if (val.type) {
-      results.push(`${key}:${val.type}:${val.description}`);
-    }
-  }
-  return results.join("\n");
+// Tool: get_degrees
+function getDegrees() {
+  return degrees;
 }
+
+// Tool: get_stages
+function getStages() {
+  return stages;
+}
+
+// Tool: get_indicator_groups
+function getIndicatorGroups() {
+  return groups;
+}
+
+// Tool: get_indicators
+function getIndicators(groupCode, forPrompts, forQualification) {
+  let filtered = indicators.indicators;
+
+  if (groupCode) {
+    filtered = filtered.filter(ind => ind.group === groupCode);
+  }
+  if (forPrompts !== undefined) {
+    filtered = filtered.filter(ind => ind.for_prompts === forPrompts);
+  }
+  if (forQualification !== undefined) {
+    filtered = filtered.filter(ind => ind.for_qualification === forQualification);
+  }
+
+  return {
+    ...indicators,
+    indicators: filtered,
+    count: filtered.length
+  };
+}
+
+// Tool: get_indicator
+function getIndicator(code) {
+  const indicator = indicators.indicators.find(ind => ind.code === code);
+  if (!indicator) {
+    return { error: `Indicator not found: ${code}` };
+  }
+  return indicator;
+}
+
+// Tool: get_stage_thresholds
+function getStageThresholds(indicatorCode) {
+  const indicator = indicators.indicators.find(ind => ind.code === indicatorCode);
+
+  if (!indicator) {
+    return { error: `Indicator not found: ${indicatorCode}` };
+  }
+
+  if (!indicator.thresholds) {
+    return {
+      indicator: indicatorCode,
+      message: "This indicator does not have stage thresholds",
+      for_qualification: indicator.for_qualification || false
+    };
+  }
+
+  // Enrich thresholds with stage names
+  const enrichedThresholds = {};
+  for (const [stageCode, threshold] of Object.entries(indicator.thresholds)) {
+    const stage = stages.stages.find(s => s.code === stageCode);
+    enrichedThresholds[stageCode] = {
+      ...threshold,
+      stage_name: stage?.name || stageCode,
+      stage_order: stage?.order
+    };
+  }
+
+  return {
+    indicator: indicatorCode,
+    indicator_name: indicator.name,
+    unit: indicator.unit,
+    thresholds: enrichedThresholds
+  };
+}
+
+// Tool: validate_value
+function validateValue(indicatorCode, value) {
+  const indicator = indicators.indicators.find(ind => ind.code === indicatorCode);
+
+  if (!indicator) {
+    return { valid: false, error: `Indicator not found: ${indicatorCode}` };
+  }
+
+  const errors = [];
+
+  // Check format/type
+  switch (indicator.format) {
+    case "integer":
+      if (!Number.isInteger(value)) {
+        errors.push(`Expected integer, got ${typeof value}`);
+      }
+      break;
+    case "float":
+      if (typeof value !== "number") {
+        errors.push(`Expected number, got ${typeof value}`);
+      }
+      break;
+    case "boolean":
+      if (typeof value !== "boolean") {
+        errors.push(`Expected boolean, got ${typeof value}`);
+      }
+      break;
+    case "string":
+    case "structured_text":
+      if (typeof value !== "string") {
+        errors.push(`Expected string, got ${typeof value}`);
+      }
+      break;
+    case "enum":
+      if (indicator.enum_values && !indicator.enum_values.includes(value)) {
+        errors.push(`Value must be one of: ${indicator.enum_values.join(", ")}`);
+      }
+      break;
+    case "date":
+      if (typeof value !== "string" || isNaN(Date.parse(value))) {
+        errors.push(`Expected valid date string`);
+      }
+      break;
+    case "json":
+    case "array":
+      if (typeof value !== "object") {
+        errors.push(`Expected object or array, got ${typeof value}`);
+      }
+      break;
+  }
+
+  // Check range constraints
+  if (indicator.min !== undefined && value < indicator.min) {
+    errors.push(`Value ${value} is below minimum ${indicator.min}`);
+  }
+  if (indicator.max !== undefined && value > indicator.max) {
+    errors.push(`Value ${value} is above maximum ${indicator.max}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    indicator: indicatorCode,
+    value,
+    format: indicator.format,
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+// ============ Data Tools ============
 
 // Tool: read_digital_twin
 function readDigitalTwin(pathArg) {
@@ -104,43 +218,123 @@ function writeDigitalTwin(pathArg, value) {
   return { success: true, path: pathArg, value };
 }
 
-// MCP Tools schema
+// ============ MCP Protocol ============
+
+// Tools schema
 const tools = [
+  // Metamodel tools
   {
-    name: "describe_by_path",
-    description: "Describe the digital twin metamodel structure",
+    name: "get_degrees",
+    description: "Get all qualification degrees (DEG.*) from Freshman to Public Figure with descriptions.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_stages",
+    description: "Get all student stages (STG.Student.*) within the Student degree, with period weeks.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_indicator_groups",
+    description: "Get all indicator groups (1.PREF, 2.1-2.10) with their names and categories.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_indicators",
+    description: "Get indicators from the metamodel. Optionally filter by group code or for_prompts/for_qualification flags.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i', 'i.agency', 'i/data')" },
+        group: { type: "string", description: "Filter by group code (e.g., '1.PREF', '2.1', '2.4')" },
+        for_prompts: { type: "boolean", description: "Filter indicators used in prompts" },
+        for_qualification: { type: "boolean", description: "Filter indicators used for qualification assessment" },
       },
-      required: ["path"],
     },
   },
   {
-    name: "read_digital_twin",
-    description: "Read data from the digital twin",
+    name: "get_indicator",
+    description: "Get a single indicator by its code with full details including thresholds.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i.agency.role_set')" },
+        code: { type: "string", description: "Indicator code (e.g., 'IND.1.PREF.objective', 'IND.2.1.1')" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "get_stage_thresholds",
+    description: "Get threshold values for an indicator across all stages. Useful for understanding qualification criteria.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        indicator: { type: "string", description: "Indicator code (e.g., 'IND.2.1.1' for weekly hours)" },
+      },
+      required: ["indicator"],
+    },
+  },
+  {
+    name: "validate_value",
+    description: "Validate a value against indicator schema (type, format, enum values, min/max).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        indicator: { type: "string", description: "Indicator code to validate against" },
+        value: { description: "Value to validate (any JSON type)" },
+      },
+      required: ["indicator", "value"],
+    },
+  },
+  // Data tools
+  {
+    name: "read_digital_twin",
+    description: "Read data from the digital twin by path. Use dot notation for nested paths.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path (e.g., 'degree', 'stage', 'indicators.IND.1.PREF.objective')" },
       },
       required: ["path"],
     },
   },
   {
     name: "write_digital_twin",
-    description: "Write data to the digital twin",
+    description: "Write data to the digital twin by path.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i.agency.role_set')" },
+        path: { type: "string", description: "Path (e.g., 'indicators.IND.1.PREF.role_set')" },
         data: { description: "Data to write (any JSON value)" },
       },
       required: ["path", "data"],
     },
   },
 ];
+
+// Handle tool calls
+function callTool(name, args) {
+  switch (name) {
+    case "get_degrees":
+      return getDegrees();
+    case "get_stages":
+      return getStages();
+    case "get_indicator_groups":
+      return getIndicatorGroups();
+    case "get_indicators":
+      return getIndicators(args.group, args.for_prompts, args.for_qualification);
+    case "get_indicator":
+      return getIndicator(args.code);
+    case "get_stage_thresholds":
+      return getStageThresholds(args.indicator);
+    case "validate_value":
+      return validateValue(args.indicator, args.value);
+    case "read_digital_twin":
+      return readDigitalTwin(args.path);
+    case "write_digital_twin":
+      return writeDigitalTwin(args.path, args.data);
+    default:
+      return { error: `Unknown tool: ${name}` };
+  }
+}
 
 // Handle MCP JSON-RPC
 function handleMCP(message) {
@@ -158,7 +352,7 @@ function handleMCP(message) {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "1.0.0" },
+          serverInfo: { name: "digital-twin-mcp", version: "2.0.0" },
         },
       };
 
@@ -167,16 +361,10 @@ function handleMCP(message) {
 
     case "tools/call": {
       const { name, arguments: args } = params;
-      let result;
+      const result = callTool(name, args || {});
 
-      if (name === "describe_by_path") {
-        result = describeByPath(args.path);
-      } else if (name === "read_digital_twin") {
-        result = readDigitalTwin(args.path);
-      } else if (name === "write_digital_twin") {
-        result = writeDigitalTwin(args.path, args.data);
-      } else {
-        return { jsonrpc: "2.0", id, error: { code: -32601, message: `Tool not found: ${name}` } };
+      if (result?.error && typeof result.error === "string") {
+        return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
       }
 
       return {
@@ -192,6 +380,8 @@ function handleMCP(message) {
       return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
   }
 }
+
+// ============ HTTP Handler ============
 
 export default {
   async fetch(request) {
@@ -209,7 +399,17 @@ export default {
     // MCP endpoint
     if (url.pathname === "/mcp" || url.pathname === "/") {
       if (request.method !== "POST") {
-        return new Response(JSON.stringify({ info: "POST JSON-RPC to this endpoint", tools: tools.map(t => t.name) }, null, 2), {
+        return new Response(JSON.stringify({
+          info: "Digital Twin MCP Server v2.0",
+          usage: "POST JSON-RPC to this endpoint",
+          tools: tools.map(t => ({ name: t.name, description: t.description })),
+          metamodel: {
+            indicators: indicators.indicators.length,
+            groups: groups.groups.length,
+            degrees: degrees.degrees.length,
+            stages: stages.stages.length,
+          }
+        }, null, 2), {
           headers: { ...cors, "Content-Type": "application/json" },
         });
       }
