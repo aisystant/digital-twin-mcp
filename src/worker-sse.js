@@ -7,10 +7,10 @@
  */
 
 // Import metamodel JSON files (bundled at build time)
-import stages from "../metamodel/stages.json";
-import groups from "../metamodel/groups.json";
-import indicators from "../metamodel/indicators.json";
-import degrees from "../metamodel/degrees.json";
+import stages from "./stages.json";
+import groups from "./groups.json";
+import indicators from "./indicators.json";
+import degrees from "./degrees.json";
 
 // Twin data (in-memory, resets on cold start)
 // TODO: Move to KV or D1 for persistence

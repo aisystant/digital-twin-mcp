@@ -2,11 +2,6 @@ name = "digital-twin-mcp"
 main = "src/worker-sse.js"
 compatibility_date = "2024-12-01"
 
-# Enable JSON module imports
-rules = [
-  { type = "Data", globs = ["**/*.json"], fallthrough = true }
-]
-
 # Account details - update with your Cloudflare account ID
 # account_id = "your-account-id-here"
 
