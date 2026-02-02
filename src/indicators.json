@@ -1,0 +1,718 @@
+{
+  "version": "0.4",
+  "description": "Полный реестр показателей мета-модели цифрового двойника (нотация IND.* из ecosystem-development)",
+  "indicators": [
+    {
+      "code": "IND.1.PREF.objective",
+      "name": "Цели обучения",
+      "name_en": "Learning objectives",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "structured_text",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.role_set",
+      "name": "Текущие роли",
+      "name_en": "Current roles",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.domain_focus",
+      "name": "Интересующие области",
+      "name_en": "Domain focus",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.daily_task_time",
+      "name": "Время получения задания",
+      "name_en": "Daily task time",
+      "group": "1.PREF",
+      "type": "structural",
+      "format": "time",
+      "unit": "HH:MM",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.daily_report_time",
+      "name": "Время отчёта за день",
+      "name_en": "Daily report time",
+      "group": "1.PREF",
+      "type": "structural",
+      "format": "time",
+      "unit": "HH:MM",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.weekly_analytics_time",
+      "name": "Время получения аналитики",
+      "name_en": "Weekly analytics time",
+      "group": "1.PREF",
+      "type": "structural",
+      "format": "day_time",
+      "unit": "day_of_week + HH:MM",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.strategy_request_time",
+      "name": "Время запроса стратегирования",
+      "name_en": "Strategy request time",
+      "group": "1.PREF",
+      "type": "structural",
+      "format": "day_time",
+      "unit": "day_of_week + HH:MM",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.target_state",
+      "name": "Целевые показатели состояния",
+      "name_en": "Target state indicators",
+      "group": "1.PREF",
+      "type": "scale",
+      "format": "object",
+      "schema": {"energy": "1-5", "attention": "1-5", "sleep": "1-5"},
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.guide_track_set",
+      "name": "Выбранные руководства",
+      "name_en": "Selected guides",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.weekly_section",
+      "name": "Раздел руководства к изучению",
+      "name_en": "Weekly guide section",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.weekly_time_budget",
+      "name": "Недельный бюджет времени",
+      "name_en": "Weekly time budget",
+      "group": "1.PREF",
+      "type": "temporal",
+      "format": "float",
+      "unit": "hours/week",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.planned_time_tomorrow",
+      "name": "Планируемое время на завтра",
+      "name_en": "Planned time tomorrow",
+      "group": "1.PREF",
+      "type": "temporal",
+      "format": "float",
+      "unit": "hours",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.highlighted_methods",
+      "name": "Фокусные методы",
+      "name_en": "Highlighted methods",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.stage_end_date",
+      "name": "Дата окончания ближайшего этапа",
+      "name_en": "Stage end date",
+      "group": "1.PREF",
+      "type": "temporal",
+      "format": "date",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.current_problems",
+      "name": "Текущие проблемы",
+      "name_en": "Current problems",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.dissatisfactions",
+      "name": "Мои неудовлетворенности",
+      "name_en": "My dissatisfactions",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.emotions",
+      "name": "Мои эмоции и чувства",
+      "name_en": "My emotions and feelings",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.priority_projects",
+      "name": "Мои приоритетные проекты",
+      "name_en": "My priority projects",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.stage_target_result",
+      "name": "Планируемый результат ближайшего этапа",
+      "name_en": "Planned stage result",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "structured_text",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.1.PREF.weekly_work_products",
+      "name": "Рабочие продукты на неделю",
+      "name_en": "Weekly work products",
+      "group": "1.PREF",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": true,
+      "for_qualification": false,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.2.1.1",
+      "name": "Среднее число часов саморазвития в неделю",
+      "name_en": "Average self-development hours per week",
+      "group": "2.1",
+      "type": "temporal",
+      "format": "float",
+      "unit": "hours/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"max": 0.5, "period_weeks": 1},
+        "STG.Student.Practicing": {"min": 4, "period_weeks": 4},
+        "STG.Student.Systematic": {"min": 6, "period_weeks": 8},
+        "STG.Student.Disciplined": {"min": 8, "period_weeks": 12},
+        "STG.Student.Proactive": {"min": 10, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.1.2",
+      "name": "Доля дней со слотом (регулярность)",
+      "name_en": "Proportion of days with learning slot",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "float",
+      "unit": "days/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 1, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 3, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 5, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 6, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 6.7, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.1.4",
+      "name": "Стабильность слотов (серии дней подряд)",
+      "name_en": "Slot stability (consecutive days)",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "integer",
+      "unit": "consecutive_days",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 0, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 3, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 4, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 5, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 6, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.1.5",
+      "name": "Частота срывов",
+      "name_en": "Relapse frequency",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "string",
+      "unit": "relapses/period",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "1 срыв в 2 недели"},
+        "STG.Student.Disciplined": {"value": "1 срыв в месяц"},
+        "STG.Student.Proactive": {"value": "Нет срывов"}
+      }
+    },
+    {
+      "code": "IND.2.1.7",
+      "name": "Индекс инициативности (регулярность стратегирования)",
+      "name_en": "Initiative index (strategy regularity)",
+      "group": "2.1",
+      "type": "frequency",
+      "format": "float",
+      "unit": "percent_weeks",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 0, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 0, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 0, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 80, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 95, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.2.1",
+      "name": "Интенсивность практики (степень мастерства по практикам)",
+      "name_en": "Practice intensity (mastery levels)",
+      "group": "2.2",
+      "type": "categorical",
+      "format": "checklist",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "Чек-листы: Объяснение 75%, Умение 50%"},
+        "STG.Student.Disciplined": {"value": "Чек-листы: Умение 75%, Навык 50%"},
+        "STG.Student.Proactive": {"value": "Чек-листы: Навык 75%, Мастерство 50%"}
+      }
+    },
+    {
+      "code": "IND.2.2.6",
+      "name": "Индекс рабочих продуктов (творческий конвейер)",
+      "name_en": "Work products index (creative pipeline)",
+      "group": "2.2",
+      "type": "frequency",
+      "format": "float",
+      "unit": "drafts/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 0, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 0, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 1, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 1.5, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 2, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.2.8",
+      "name": "Учтённое время (прохождение ритуала)",
+      "name_en": "Accounted time (ritual completion)",
+      "group": "2.2",
+      "type": "temporal",
+      "format": "float",
+      "unit": "hours/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 0, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 0, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 20, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 30, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 40, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.2.9",
+      "name": "Развитие мировоззрения",
+      "name_en": "Worldview evolution",
+      "group": "2.2",
+      "type": "semantic",
+      "format": "checklist",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": "Понимаю зачем, чему, как и когда учиться"},
+        "STG.Student.Systematic": {"value": "Понимаю что такое мировоззрение и замечаю свои мемы"},
+        "STG.Student.Disciplined": {"value": "Поменял как минимум один свой плохой мем"},
+        "STG.Student.Proactive": {"value": "Разобрался с большинством плохих мемов и помогаю другим"}
+      }
+    },
+    {
+      "code": "IND.2.2.10",
+      "name": "Трансформация привычек",
+      "name_en": "Habit transformation",
+      "group": "2.2",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": null},
+        "STG.Student.Disciplined": {"value": "Осознаю свои плохие привычки и начал работать"},
+        "STG.Student.Proactive": {"value": "Отказался или заменил плохую привычку на хорошую"}
+      }
+    },
+    {
+      "code": "IND.2.2.11",
+      "name": "Развитие потенциала",
+      "name_en": "Potential growth",
+      "group": "2.2",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": null},
+        "STG.Student.Disciplined": {"value": "Понимаю характеристику агента и потенциал"},
+        "STG.Student.Proactive": {"value": "Повысил потенциал хотя бы по одной характеристике"}
+      }
+    },
+    {
+      "code": "IND.2.2.12",
+      "name": "Текущие негативные привычки",
+      "name_en": "Current negative habits",
+      "group": "2.2",
+      "type": "semantic",
+      "format": "list[string]",
+      "for_prompts": false,
+      "for_qualification": false,
+      "trainee_model": false
+    },
+    {
+      "code": "IND.2.3.2",
+      "name": "Индекс рефлексии (частота заметок)",
+      "name_en": "Reflection index (notes frequency)",
+      "group": "2.3",
+      "type": "frequency",
+      "format": "float",
+      "unit": "notes/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": 0, "period_weeks": 1},
+        "STG.Student.Practicing": {"value": 0, "period_weeks": 4},
+        "STG.Student.Systematic": {"value": 5, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 6, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 6.7, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.3.4",
+      "name": "Характеристики окружения (контроль инфопотока)",
+      "name_en": "Environment characteristics (infostream control)",
+      "group": "2.3",
+      "type": "semantic",
+      "format": "checklist",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": "Начал чистить окружение (убрал лишние каналы)"},
+        "STG.Student.Systematic": {"value": "Взял под контроль внимание, осознанно меняю окружение"},
+        "STG.Student.Disciplined": {"value": "Стал активным участником сообщества"},
+        "STG.Student.Proactive": {"value": "Активно занимается просвещением"}
+      }
+    },
+    {
+      "code": "IND.2.3.7",
+      "name": "Поведенческие паттерны",
+      "name_en": "Behavior patterns",
+      "group": "2.3",
+      "type": "categorical",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "Выявляет и старается обходить"},
+        "STG.Student.Disciplined": {"value": "Снижает/перепрошивает"},
+        "STG.Student.Proactive": {"value": "Переписывает сознательно"}
+      }
+    },
+    {
+      "code": "IND.2.3.8",
+      "name": "Текущие мемы (продуктивные и непродуктивные)",
+      "name_en": "Current memes",
+      "group": "2.3",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "Замечает мемы у других"},
+        "STG.Student.Disciplined": {"value": "Замечает свои непродуктивные мемы"},
+        "STG.Student.Proactive": {"value": "Осознанно меняет"}
+      }
+    },
+    {
+      "code": "IND.2.3.9",
+      "name": "Калибр личности (системные уровни целей)",
+      "name_en": "Personality caliber (systemic intent levels)",
+      "group": "2.3",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": null},
+        "STG.Student.Disciplined": {"value": null},
+        "STG.Student.Proactive": {"value": "Уровень команды и сообщества"}
+      }
+    },
+    {
+      "code": "IND.2.4.2",
+      "name": "Внутренняя ступень Ученика",
+      "name_en": "Internal student stage",
+      "group": "2.4",
+      "type": "categorical",
+      "format": "enum",
+      "enum_values": ["STG.Student.Random", "STG.Student.Practicing", "STG.Student.Systematic", "STG.Student.Disciplined", "STG.Student.Proactive"],
+      "for_prompts": true,
+      "for_qualification": true,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.2.4.3",
+      "name": "История смены ступеней",
+      "name_en": "Stage change history",
+      "group": "2.4",
+      "type": "categorical",
+      "format": "list[object]",
+      "item_schema": {"date": "date", "level": "string", "reason": "string"},
+      "for_prompts": true,
+      "for_qualification": true,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.2.4.7",
+      "name": "Дата последнего присвоения",
+      "name_en": "Last assigned date",
+      "group": "2.4",
+      "type": "temporal",
+      "format": "date",
+      "for_prompts": true,
+      "for_qualification": true,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.2.4.8",
+      "name": "Критерии присвоения ступени",
+      "name_en": "Qualification criteria snapshot",
+      "group": "2.4",
+      "type": "semantic",
+      "format": "structured_text",
+      "description": "Срез показателей на дату присвоения квалификации",
+      "for_prompts": true,
+      "for_qualification": true,
+      "trainee_model": true
+    },
+    {
+      "code": "IND.2.6.1",
+      "name": "Индекс ресурсности (продуктивность состояния)",
+      "name_en": "Resourcefulness index (state productivity)",
+      "group": "2.6",
+      "type": "scale",
+      "format": "float",
+      "unit": "1-5",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": 3, "period_weeks": 8},
+        "STG.Student.Disciplined": {"value": 3.7, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 4.3, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.6.3",
+      "name": "Ритм работа–отдых (соблюдение ритма)",
+      "name_en": "Work-rest rhythm adherence",
+      "group": "2.6",
+      "type": "scale",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "3–4 дня в ритме/неделя"},
+        "STG.Student.Disciplined": {"value": "6–7 дней стабильно"},
+        "STG.Student.Proactive": {"value": "Автоматизированный ритм"}
+      }
+    },
+    {
+      "code": "IND.2.6.4",
+      "name": "Устойчивость к сбоям (скорость восстановления)",
+      "name_en": "Fault tolerance (recovery speed)",
+      "group": "2.6",
+      "type": "temporal",
+      "format": "integer",
+      "unit": "days",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": 7},
+        "STG.Student.Disciplined": {"value": 3},
+        "STG.Student.Proactive": {"value": 1}
+      }
+    },
+    {
+      "code": "IND.2.6.5",
+      "name": "Управление текущим состоянием",
+      "name_en": "Current state regulation",
+      "group": "2.6",
+      "type": "scale",
+      "format": "float",
+      "unit": "1-5",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": null},
+        "STG.Student.Disciplined": {"value": 3, "period_weeks": 12},
+        "STG.Student.Proactive": {"value": 3.5, "period_weeks": 24}
+      }
+    },
+    {
+      "code": "IND.2.6.6",
+      "name": "Частота методов восстановления",
+      "name_en": "Recovery methods frequency",
+      "group": "2.6",
+      "type": "frequency",
+      "format": "string",
+      "unit": "times/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "1–2 метода в неделю"},
+        "STG.Student.Disciplined": {"value": "Стабильные практики"},
+        "STG.Student.Proactive": {"value": "Саморегуляция в рутине"}
+      }
+    },
+    {
+      "code": "IND.2.6.7",
+      "name": "Использованные методы поддержки",
+      "name_en": "Support methods used",
+      "group": "2.6",
+      "type": "frequency",
+      "format": "string",
+      "unit": "count/week",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "1–2 регулярных практики"},
+        "STG.Student.Disciplined": {"value": "3–5 встроенных в рутину"},
+        "STG.Student.Proactive": {"value": "Комплексная система поддержки"}
+      }
+    },
+    {
+      "code": "IND.2.6.8",
+      "name": "Гибкость пересборки",
+      "name_en": "Restructuring flexibility",
+      "group": "2.6",
+      "type": "semantic",
+      "format": "string",
+      "for_prompts": false,
+      "for_qualification": true,
+      "trainee_model": false,
+      "thresholds": {
+        "STG.Student.Random": {"value": null},
+        "STG.Student.Practicing": {"value": null},
+        "STG.Student.Systematic": {"value": "Переосмысливает раз в неделю"},
+        "STG.Student.Disciplined": {"value": "Быстро корректирует план"},
+        "STG.Student.Proactive": {"value": "Перестраивает маршрут мгновенно"}
+      }
+    }
+  ]
+}
