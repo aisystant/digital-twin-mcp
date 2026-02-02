@@ -25,25 +25,43 @@ const DEFAULT_TWIN_DATA = {
   },
 };
 
-// KV key for twin data
-const TWIN_KEY = "twin:default";
+// KV key prefix for twin data
+const TWIN_KEY_PREFIX = "twin:";
+const DEFAULT_USER = "default";
+
+// Get KV key for user
+function getTwinKey(userId) {
+  const safeUserId = (userId || DEFAULT_USER).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${TWIN_KEY_PREFIX}${safeUserId}`;
+}
 
 // Get twin data from KV (or default if not exists)
-async function getTwinData(env) {
+async function getTwinData(env, userId) {
   if (!env?.DIGITAL_TWIN_DATA) {
     return { ...DEFAULT_TWIN_DATA };
   }
-  const data = await env.DIGITAL_TWIN_DATA.get(TWIN_KEY, "json");
+  const key = getTwinKey(userId);
+  const data = await env.DIGITAL_TWIN_DATA.get(key, "json");
   return data || { ...DEFAULT_TWIN_DATA };
 }
 
 // Save twin data to KV
-async function saveTwinData(env, data) {
+async function saveTwinData(env, userId, data) {
   if (!env?.DIGITAL_TWIN_DATA) {
     return false;
   }
-  await env.DIGITAL_TWIN_DATA.put(TWIN_KEY, JSON.stringify(data));
+  const key = getTwinKey(userId);
+  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(data));
   return true;
+}
+
+// List all users
+async function listUsers(env) {
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return [DEFAULT_USER];
+  }
+  const list = await env.DIGITAL_TWIN_DATA.list({ prefix: TWIN_KEY_PREFIX });
+  return list.keys.map(k => k.name.replace(TWIN_KEY_PREFIX, ""));
 }
 
 // Normalize path: both dots and slashes work
@@ -226,24 +244,30 @@ function validateValue(indicatorCode, value) {
 // ============ Data Tools ============
 
 // Tool: read_digital_twin
-async function readDigitalTwin(env, pathArg) {
-  const twinData = await getTwinData(env);
+async function readDigitalTwin(env, pathArg, userId) {
+  const twinData = await getTwinData(env, userId);
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
   return value;
 }
 
 // Tool: write_digital_twin
-async function writeDigitalTwin(env, pathArg, value) {
-  const twinData = await getTwinData(env);
+async function writeDigitalTwin(env, pathArg, value, userId) {
+  const twinData = await getTwinData(env, userId);
   setByPath(twinData, pathArg, value);
-  const saved = await saveTwinData(env, twinData);
+  const saved = await saveTwinData(env, userId, twinData);
   return {
     success: true,
     path: pathArg,
     value,
+    user: userId || DEFAULT_USER,
     persisted: saved
   };
+}
+
+// Tool: list_users
+async function listTwinUsers(env) {
+  return await listUsers(env);
 }
 
 // ============ MCP Protocol ============
@@ -320,6 +344,7 @@ const tools = [
       type: "object",
       properties: {
         path: { type: "string", description: "Path (e.g., 'degree', 'stage', 'indicators.IND.1.PREF.objective')" },
+        user_id: { type: "string", description: "User ID (optional, defaults to 'default')" },
       },
       required: ["path"],
     },
@@ -332,8 +357,17 @@ const tools = [
       properties: {
         path: { type: "string", description: "Path (e.g., 'indicators.IND.1.PREF.role_set')" },
         data: { description: "Data to write (any JSON value)" },
+        user_id: { type: "string", description: "User ID (optional, defaults to 'default')" },
       },
       required: ["path", "data"],
+    },
+  },
+  {
+    name: "list_users",
+    description: "List all users who have twin data stored.",
+    inputSchema: {
+      type: "object",
+      properties: {},
     },
   },
 ];
@@ -356,9 +390,11 @@ async function callTool(env, name, args) {
     case "validate_value":
       return validateValue(args.indicator, args.value);
     case "read_digital_twin":
-      return await readDigitalTwin(env, args.path);
+      return await readDigitalTwin(env, args.path, args.user_id);
     case "write_digital_twin":
-      return await writeDigitalTwin(env, args.path, args.data);
+      return await writeDigitalTwin(env, args.path, args.data, args.user_id);
+    case "list_users":
+      return await listTwinUsers(env);
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -380,7 +416,7 @@ async function handleMCP(env, message) {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "2.1.0" },
+          serverInfo: { name: "digital-twin-mcp", version: "2.3.0" },
         },
       };
 
@@ -409,6 +445,31 @@ async function handleMCP(env, message) {
   }
 }
 
+// ============ Authentication ============
+
+function checkAuth(request, env) {
+  // If no API_KEY configured, allow all requests (open mode)
+  if (!env?.API_KEY) {
+    return { authorized: true, mode: "open" };
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) {
+    return { authorized: false, error: "Missing Authorization header" };
+  }
+
+  const [scheme, token] = authHeader.split(" ");
+  if (scheme !== "Bearer" || !token) {
+    return { authorized: false, error: "Invalid Authorization format. Use: Bearer <token>" };
+  }
+
+  if (token !== env.API_KEY) {
+    return { authorized: false, error: "Invalid API key" };
+  }
+
+  return { authorized: true, mode: "protected" };
+}
+
 // ============ HTTP Handler ============
 
 export default {
@@ -417,7 +478,7 @@ export default {
     const cors = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
     if (request.method === "OPTIONS") {
@@ -426,10 +487,13 @@ export default {
 
     // MCP endpoint
     if (url.pathname === "/mcp" || url.pathname === "/") {
+      // GET - public info (no auth required)
       if (request.method !== "POST") {
+        const authStatus = env?.API_KEY ? "enabled (use Bearer token)" : "disabled (open access)";
         return new Response(JSON.stringify({
-          info: "Digital Twin MCP Server v2.1",
+          info: "Digital Twin MCP Server v2.3",
           usage: "POST JSON-RPC to this endpoint",
+          auth: authStatus,
           storage: env?.DIGITAL_TWIN_DATA ? "KV (persistent)" : "in-memory (non-persistent)",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
           metamodel: {
@@ -439,6 +503,18 @@ export default {
             stages: stages.stages.length,
           }
         }, null, 2), {
+          headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST - check auth if API_KEY is configured
+      const auth = checkAuth(request, env);
+      if (!auth.authorized) {
+        return new Response(JSON.stringify({
+          error: "Unauthorized",
+          message: auth.error
+        }), {
+          status: 401,
           headers: { ...cors, "Content-Type": "application/json" },
         });
       }
