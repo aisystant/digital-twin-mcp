@@ -12,9 +12,8 @@ import groups from "./groups.json";
 import indicators from "./indicators.json";
 import degrees from "./degrees.json";
 
-// Twin data (in-memory, resets on cold start)
-// TODO: Move to KV or D1 for persistence
-let twinData = {
+// Default twin data (used when KV is empty)
+const DEFAULT_TWIN_DATA = {
   degree: "DEG.Student",
   stage: "STG.Student.Practicing",
   indicators: {
@@ -25,6 +24,27 @@ let twinData = {
     "IND.2.1.2": 0.85,
   },
 };
+
+// KV key for twin data
+const TWIN_KEY = "twin:default";
+
+// Get twin data from KV (or default if not exists)
+async function getTwinData(env) {
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return { ...DEFAULT_TWIN_DATA };
+  }
+  const data = await env.DIGITAL_TWIN_DATA.get(TWIN_KEY, "json");
+  return data || { ...DEFAULT_TWIN_DATA };
+}
+
+// Save twin data to KV
+async function saveTwinData(env, data) {
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return false;
+  }
+  await env.DIGITAL_TWIN_DATA.put(TWIN_KEY, JSON.stringify(data));
+  return true;
+}
 
 // Normalize path: both dots and slashes work
 function normalizePath(p) {
@@ -206,16 +226,24 @@ function validateValue(indicatorCode, value) {
 // ============ Data Tools ============
 
 // Tool: read_digital_twin
-function readDigitalTwin(pathArg) {
+async function readDigitalTwin(env, pathArg) {
+  const twinData = await getTwinData(env);
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
   return value;
 }
 
 // Tool: write_digital_twin
-function writeDigitalTwin(pathArg, value) {
+async function writeDigitalTwin(env, pathArg, value) {
+  const twinData = await getTwinData(env);
   setByPath(twinData, pathArg, value);
-  return { success: true, path: pathArg, value };
+  const saved = await saveTwinData(env, twinData);
+  return {
+    success: true,
+    path: pathArg,
+    value,
+    persisted: saved
+  };
 }
 
 // ============ MCP Protocol ============
@@ -311,7 +339,7 @@ const tools = [
 ];
 
 // Handle tool calls
-function callTool(name, args) {
+async function callTool(env, name, args) {
   switch (name) {
     case "get_degrees":
       return getDegrees();
@@ -328,16 +356,16 @@ function callTool(name, args) {
     case "validate_value":
       return validateValue(args.indicator, args.value);
     case "read_digital_twin":
-      return readDigitalTwin(args.path);
+      return await readDigitalTwin(env, args.path);
     case "write_digital_twin":
-      return writeDigitalTwin(args.path, args.data);
+      return await writeDigitalTwin(env, args.path, args.data);
     default:
       return { error: `Unknown tool: ${name}` };
   }
 }
 
 // Handle MCP JSON-RPC
-function handleMCP(message) {
+async function handleMCP(env, message) {
   const { jsonrpc, id, method, params } = message;
 
   if (jsonrpc !== "2.0") {
@@ -352,7 +380,7 @@ function handleMCP(message) {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "2.0.0" },
+          serverInfo: { name: "digital-twin-mcp", version: "2.1.0" },
         },
       };
 
@@ -361,7 +389,7 @@ function handleMCP(message) {
 
     case "tools/call": {
       const { name, arguments: args } = params;
-      const result = callTool(name, args || {});
+      const result = await callTool(env, name, args || {});
 
       if (result?.error && typeof result.error === "string") {
         return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
@@ -384,7 +412,7 @@ function handleMCP(message) {
 // ============ HTTP Handler ============
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const cors = {
       "Access-Control-Allow-Origin": "*",
@@ -400,8 +428,9 @@ export default {
     if (url.pathname === "/mcp" || url.pathname === "/") {
       if (request.method !== "POST") {
         return new Response(JSON.stringify({
-          info: "Digital Twin MCP Server v2.0",
+          info: "Digital Twin MCP Server v2.1",
           usage: "POST JSON-RPC to this endpoint",
+          storage: env?.DIGITAL_TWIN_DATA ? "KV (persistent)" : "in-memory (non-persistent)",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
           metamodel: {
             indicators: indicators.indicators.length,
@@ -415,7 +444,7 @@ export default {
       }
 
       const message = await request.json();
-      const response = handleMCP(message);
+      const response = await handleMCP(env, message);
       return new Response(JSON.stringify(response, null, 2), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
