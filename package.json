@@ -8,7 +8,8 @@
     "build": "echo 'No build step required'",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test src/**/*.test.js",
+    "docs": "node scripts/generate-docs.js"
   },
   "keywords": [
     "mcp",
