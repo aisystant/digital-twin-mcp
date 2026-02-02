@@ -409,6 +409,31 @@ async function handleMCP(env, message) {
   }
 }
 
+// ============ Authentication ============
+
+function checkAuth(request, env) {
+  // If no API_KEY configured, allow all requests (open mode)
+  if (!env?.API_KEY) {
+    return { authorized: true, mode: "open" };
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) {
+    return { authorized: false, error: "Missing Authorization header" };
+  }
+
+  const [scheme, token] = authHeader.split(" ");
+  if (scheme !== "Bearer" || !token) {
+    return { authorized: false, error: "Invalid Authorization format. Use: Bearer <token>" };
+  }
+
+  if (token !== env.API_KEY) {
+    return { authorized: false, error: "Invalid API key" };
+  }
+
+  return { authorized: true, mode: "protected" };
+}
+
 // ============ HTTP Handler ============
 
 export default {
@@ -417,7 +442,7 @@ export default {
     const cors = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
     if (request.method === "OPTIONS") {
@@ -426,10 +451,13 @@ export default {
 
     // MCP endpoint
     if (url.pathname === "/mcp" || url.pathname === "/") {
+      // GET - public info (no auth required)
       if (request.method !== "POST") {
+        const authStatus = env?.API_KEY ? "enabled (use Bearer token)" : "disabled (open access)";
         return new Response(JSON.stringify({
-          info: "Digital Twin MCP Server v2.1",
+          info: "Digital Twin MCP Server v2.2",
           usage: "POST JSON-RPC to this endpoint",
+          auth: authStatus,
           storage: env?.DIGITAL_TWIN_DATA ? "KV (persistent)" : "in-memory (non-persistent)",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
           metamodel: {
@@ -439,6 +467,18 @@ export default {
             stages: stages.stages.length,
           }
         }, null, 2), {
+          headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST - check auth if API_KEY is configured
+      const auth = checkAuth(request, env);
+      if (!auth.authorized) {
+        return new Response(JSON.stringify({
+          error: "Unauthorized",
+          message: auth.error
+        }), {
+          status: 401,
           headers: { ...cors, "Content-Type": "application/json" },
         });
       }
