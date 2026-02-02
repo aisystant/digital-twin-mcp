@@ -40,9 +40,68 @@ function generateMainReadme(groups, indicators, degrees, stages) {
     indicatorsByGroup[ind.group].push(ind);
   }
 
+  const today = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  const indicatorCount = indicators.indicators.length;
+
   let md = `# Мета-модель цифрового двойника
 
-> Автоматически сгенерировано из JSON-файлов. Не редактируйте вручную.
+## Структура данных
+
+**Для ИИ (MCP-сервер):** Все индикаторы собраны в едином файле [\`indicators.json\`](../indicators.json).
+На ${today} в мета-модели **${indicatorCount} индикаторов**. Это source of truth — единственный источник правды для программного доступа.
+
+**Для человека:** Эта папка \`docs/\` содержит ту же информацию, но распределённую по папкам групп для удобной навигации:
+- Каждая группа (1.PREF, 2.1, 2.2, ...) — отдельная папка
+- Каждый индикатор — отдельный MD-файл с описанием
+
+---
+
+## Автогенерация документации
+
+> **Важно:** Эта папка генерируется автоматически. Не редактируйте файлы вручную — изменения будут потеряны при следующей генерации.
+
+### Как запустить
+
+**Через npm (рекомендуется):**
+\`\`\`bash
+cd /path/to/digital-twin-mcp
+npm run docs
+\`\`\`
+
+**Напрямую через Node.js:**
+\`\`\`bash
+node scripts/generate-docs.js
+\`\`\`
+Этот способ полезен, если npm недоступен или нужно запустить скрипт из другой директории.
+
+**Через GitHub Actions:**
+Можно настроить автоматическую генерацию при изменении JSON-файлов. Пример workflow:
+
+\`\`\`yaml
+# .github/workflows/generate-docs.yml
+name: Generate Metamodel Docs
+
+on:
+  push:
+    paths:
+      - 'metamodel/*.json'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm run docs
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: auto-generate metamodel documentation"
+          file_pattern: "metamodel/docs/*"
+\`\`\`
+
+---
 
 ## Обзор
 
