@@ -4,6 +4,8 @@
  * Authentication: Ory.sh
  */
 
+import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
+
 // ============================================
 // Ory.sh Authentication
 // ============================================
@@ -131,50 +133,61 @@ async function authenticate(request, env) {
 }
 
 // ============================================
-// Metamodel & Data
+// Twin Data Storage
 // ============================================
 
-// Metamodel definition (inline)
-const METAMODEL = {
-  i: {
-    _meta: { description: "Root of digital twin data" },
+// Default twin data (used when KV is empty)
+const DEFAULT_TWIN_DATA = {
+  indicators: {
     agency: {
-      _meta: { description: "Learner's agency and self-organization" },
-      role_set: { type: "set", description: "Current set of learner roles" },
-      goals: { type: "list", description: "Learning goals with priorities" },
-      daily_task_time: { type: "list", description: "Daily time allocation for tasks" },
+      role_set: [],
+      goals: [],
+      daily_task_time: null,
     },
     data: {
-      _meta: { description: "Objective measurements and metrics" },
-      time_invested: { type: "object", description: "Time investment summary" },
-      progress: { type: "object", description: "Learning progress by topic" },
-    },
-    info: {
-      _meta: { description: "Static learner information" },
-      profile: { type: "object", description: "Basic learner profile" },
-      preferences: { type: "object", description: "Learning preferences" },
-    },
-  },
-};
-
-// Twin data (in-memory, resets on restart)
-let twinData = {
-  i: {
-    agency: {
-      role_set: ["developer", "learner"],
-      goals: [{ goal: "Master MCP protocol", priority: 1 }],
-      daily_task_time: [{ task: "coding", minutes: 60 }],
-    },
-    data: {
-      time_invested: { total_hours: 12.5, sessions_count: 18 },
-      progress: { mcp: 0.3 },
+      time_invested: { total_hours: 0, sessions_count: 0 },
+      progress: {},
     },
     info: {
       profile: { name: "Learner", level: "beginner" },
       preferences: { style: "hands-on", pace: "moderate" },
     },
+    stage: {
+      current: "STG.Student.Practicing",
+      history: [],
+    },
   },
 };
+
+// KV key prefix for twin data
+const TWIN_KEY_PREFIX = "twin:";
+const DEFAULT_USER = "default";
+
+// Get KV key for user
+function getTwinKey(userId) {
+  const safeUserId = (userId || DEFAULT_USER).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${TWIN_KEY_PREFIX}${safeUserId}`;
+}
+
+// Get twin data from KV (or default if not exists)
+async function getTwinData(env, userId) {
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return { ...DEFAULT_TWIN_DATA };
+  }
+  const key = getTwinKey(userId);
+  const data = await env.DIGITAL_TWIN_DATA.get(key, "json");
+  return data || { ...DEFAULT_TWIN_DATA };
+}
+
+// Save twin data to KV
+async function saveTwinData(env, userId, data) {
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return false;
+  }
+  const key = getTwinKey(userId);
+  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(data));
+  return true;
+}
 
 // Normalize path: both dots and slashes work
 function normalizePath(p) {
@@ -203,78 +216,194 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Tool: describe_by_path
-function describeByPath(pathArg) {
-  const normalized = normalizePath(pathArg);
-  const node = getByPath(METAMODEL, normalized);
+// Parse MD file to extract metadata
+function parseMdFile(content, filename) {
+  const lines = content.split("\n");
+  const result = {
+    name: filename,
+    type: "unknown",
+    format: "unknown",
+    description: "",
+  };
 
-  if (!node) return `Error: Path not found: ${pathArg}`;
-
-  const results = [];
-  for (const [key, val] of Object.entries(node)) {
-    if (key === "_meta") continue;
-    if (val._meta) {
-      results.push(`${key}:section:${val._meta.description}`);
-    } else if (val.type) {
-      results.push(`${key}:${val.type}:${val.description}`);
+  for (const line of lines) {
+    if (line.startsWith("**Name:**")) {
+      result.name = line.replace("**Name:**", "").trim();
+    }
+    if (line.startsWith("**Type:**")) {
+      result.type = line.replace("**Type:**", "").trim();
+    }
+    if (line.startsWith("**Format:**")) {
+      result.format = line.replace("**Format:**", "").trim();
+    }
+    if (line.startsWith("**Description:**")) {
+      result.description = line.replace("**Description:**", "").trim();
     }
   }
-  return results.join("\n");
+
+  return result;
+}
+
+// ============ Tools ============
+
+// Tool: describe_by_path - reads metamodel MD content
+function describeByPath(pathArg) {
+  // Handle empty or root path - list all groups
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    const results = [];
+
+    // List root files
+    for (const [name, _content] of Object.entries(METAMODEL.rootFiles)) {
+      results.push(`${name}:document:Root metamodel document`);
+    }
+
+    // List group folders
+    for (const group of METAMODEL.groups) {
+      const firstLine = group.description.split("\n").find((l) => l.startsWith("# "));
+      const desc = firstLine ? firstLine.replace("# ", "").trim() : group.name;
+      results.push(`${group.name}:group:${desc}`);
+    }
+
+    return results.join("\n");
+  }
+
+  const normalized = normalizePath(pathArg);
+  const parts = normalized.split(".");
+
+  // Check if it's a root file (stages, degrees)
+  if (parts.length === 1 && METAMODEL.rootFiles[parts[0]]) {
+    return METAMODEL.rootFiles[parts[0]];
+  }
+
+  // Check if it's a group
+  const group = getGroup(parts[0]);
+  if (!group) {
+    return `Error: Path not found: ${pathArg}`;
+  }
+
+  // If just group name, list all indicators
+  if (parts.length === 1) {
+    const results = [];
+    for (const [name, content] of Object.entries(group.indicators)) {
+      const { type, format, description } = parseMdFile(content, name);
+      results.push(`${name}:${type}/${format}:${description}`);
+    }
+    return results.join("\n");
+  }
+
+  // Get specific indicator
+  const indicatorContent = getIndicator(parts[0], parts[1]);
+  if (!indicatorContent) {
+    return `Error: Indicator not found: ${pathArg}`;
+  }
+
+  return indicatorContent;
 }
 
 // Tool: read_digital_twin
-function readDigitalTwin(pathArg) {
+async function readDigitalTwin(env, pathArg, userId) {
+  const twinData = await getTwinData(env, userId);
+
+  // If no path, return all data
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    return twinData;
+  }
+
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
   return value;
 }
 
 // Tool: write_digital_twin
-function writeDigitalTwin(pathArg, value) {
+async function writeDigitalTwin(env, pathArg, value, userId) {
+  const twinData = await getTwinData(env, userId);
   setByPath(twinData, pathArg, value);
-  return { success: true, path: pathArg, value };
+  const saved = await saveTwinData(env, userId, twinData);
+  return {
+    success: true,
+    path: pathArg,
+    value,
+    user: userId || DEFAULT_USER,
+    persisted: saved,
+  };
 }
 
-// MCP Tools schema
+// ============ MCP Protocol ============
+
+// Tools schema
 const tools = [
   {
     name: "describe_by_path",
-    description: "Describe the digital twin metamodel structure",
+    description:
+      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i', 'i.agency', 'i/data')" },
+        path: {
+          type: "string",
+          description:
+            "Path in metamodel. Examples: '/' (root), '01.preferences', '02.agency', '01.preferences/objective'",
+        },
       },
-      required: ["path"],
     },
   },
   {
     name: "read_digital_twin",
-    description: "Read data from the digital twin",
+    description: "Read data from the digital twin by path. Use dot notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i.agency.role_set')" },
+        path: {
+          type: "string",
+          description: "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
+        },
+        user_id: {
+          type: "string",
+          description: "User ID (optional, defaults to 'default')",
+        },
       },
       required: ["path"],
     },
   },
   {
     name: "write_digital_twin",
-    description: "Write data to the digital twin",
+    description: "Write data to the digital twin by path. Use dot notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path (e.g., 'i.agency.role_set')" },
-        data: { description: "Data to write (any JSON value)" },
+        path: {
+          type: "string",
+          description: "Path to data (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
+        },
+        data: {
+          description: "Data to write (any JSON value)",
+        },
+        user_id: {
+          type: "string",
+          description: "User ID (optional, defaults to 'default')",
+        },
       },
       required: ["path", "data"],
     },
   },
 ];
 
+// Handle tool calls
+async function callTool(env, name, args) {
+  switch (name) {
+    case "describe_by_path":
+      return describeByPath(args.path);
+    case "read_digital_twin":
+      return await readDigitalTwin(env, args.path, args.user_id);
+    case "write_digital_twin":
+      return await writeDigitalTwin(env, args.path, args.data, args.user_id);
+    default:
+      return { error: `Unknown tool: ${name}` };
+  }
+}
+
 // Handle MCP JSON-RPC
-function handleMCP(message) {
+async function handleMCP(env, message) {
   const { jsonrpc, id, method, params } = message;
 
   if (jsonrpc !== "2.0") {
@@ -289,7 +418,7 @@ function handleMCP(message) {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "1.0.0" },
+          serverInfo: { name: "digital-twin-mcp", version: "2.0.0" },
         },
       };
 
@@ -298,23 +427,19 @@ function handleMCP(message) {
 
     case "tools/call": {
       const { name, arguments: args } = params;
-      let result;
+      const result = await callTool(env, name, args || {});
 
-      if (name === "describe_by_path") {
-        result = describeByPath(args.path);
-      } else if (name === "read_digital_twin") {
-        result = readDigitalTwin(args.path);
-      } else if (name === "write_digital_twin") {
-        result = writeDigitalTwin(args.path, args.data);
-      } else {
-        return { jsonrpc: "2.0", id, error: { code: -32601, message: `Tool not found: ${name}` } };
+      if (result?.error && typeof result.error === "string") {
+        return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
       }
 
       return {
         jsonrpc: "2.0",
         id,
         result: {
-          content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }],
+          content: [
+            { type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) },
+          ],
         },
       };
     }
@@ -323,6 +448,8 @@ function handleMCP(message) {
       return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
   }
 }
+
+// ============ HTTP Handler ============
 
 export default {
   async fetch(request, env) {
@@ -362,9 +489,18 @@ export default {
       // GET request - show info (no auth for discovery)
       if (request.method !== "POST") {
         return new Response(JSON.stringify({
-          info: "POST JSON-RPC to this endpoint",
-          tools: tools.map(t => t.name),
-          auth_required: !!(env.ORY_PROJECT_URL || env.API_KEY),
+          info: "Digital Twin MCP Server v2.0",
+          usage: "POST JSON-RPC to this endpoint",
+          auth: {
+            ory_enabled: !!env.ORY_PROJECT_URL,
+            api_key_enabled: !!env.API_KEY,
+          },
+          storage: env?.DIGITAL_TWIN_DATA ? "KV (persistent)" : "in-memory (non-persistent)",
+          tools: tools.map(t => ({ name: t.name, description: t.description })),
+          metamodel: {
+            groups: METAMODEL.groups.length,
+            rootFiles: Object.keys(METAMODEL.rootFiles),
+          },
         }, null, 2), {
           headers: { ...cors, "Content-Type": "application/json" },
         });
@@ -389,13 +525,7 @@ export default {
       }
 
       const message = await request.json();
-
-      // Add auth context to request (available in tool handlers if needed)
-      const response = handleMCP(message, {
-        authMethod: authResult.method,
-        session: authResult.session,
-        userId: authResult.session?.identity?.id,
-      });
+      const response = await handleMCP(env, message);
 
       return new Response(JSON.stringify(response, null, 2), {
         headers: { ...cors, "Content-Type": "application/json" },

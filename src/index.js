@@ -28,7 +28,7 @@ function normalizePath(pathStr) {
   return pathStr.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
 }
 
-// Helper: get value by path (accepts both "i.agency.role_set" and "i/agency/role_set")
+// Helper: get value by path (accepts both dots and slashes)
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -53,86 +53,101 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Helper: parse MD file to extract type and description
+// Helper: parse MD file to extract metadata
 function parseMdFile(content, filename) {
   const lines = content.split("\n");
-  let type = "unknown";
-  let description = "";
+  const result = {
+    name: filename,
+    type: "unknown",
+    format: "unknown",
+    description: ""
+  };
 
   for (const line of lines) {
+    if (line.startsWith("**Name:**")) {
+      result.name = line.replace("**Name:**", "").trim();
+    }
     if (line.startsWith("**Type:**")) {
-      type = line.replace("**Type:**", "").trim();
+      result.type = line.replace("**Type:**", "").trim();
+    }
+    if (line.startsWith("**Format:**")) {
+      result.format = line.replace("**Format:**", "").trim();
     }
     if (line.startsWith("**Description:**")) {
-      description = line.replace("**Description:**", "").trim();
+      result.description = line.replace("**Description:**", "").trim();
     }
   }
 
-  // If no explicit description, use first non-header non-empty line
-  if (!description) {
+  // If no explicit description, use first non-header non-meta line
+  if (!result.description) {
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("**")) {
-        description = trimmed;
+      if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("**") && !trimmed.startsWith("-")) {
+        result.description = trimmed;
         break;
       }
     }
   }
 
-  return { type, description };
+  return result;
 }
 
 // Tool: describe_by_path - reads metamodel MD files
 async function describeByPath(pathArg) {
-  const normalized = normalizePath(pathArg);
-  const targetPath = path.join(METAMODEL_PATH, normalized.replace(/\./g, "/"));
+  // Handle empty or root path - list all groups
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
+    const results = [];
+
+    // List root MD files (stages.md, degrees.md)
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(`${entry.name.replace(".md", "")}:document:Root metamodel document`);
+      }
+    }
+
+    // List group folders
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Try to read _group.md for description
+        const groupMdPath = path.join(METAMODEL_PATH, entry.name, "_group.md");
+        try {
+          const content = await fs.readFile(groupMdPath, "utf-8");
+          const firstLine = content.split("\n").find(l => l.startsWith("# "));
+          const desc = firstLine ? firstLine.replace("# ", "").trim() : entry.name;
+          results.push(`${entry.name}:group:${desc}`);
+        } catch {
+          results.push(`${entry.name}:group:`);
+        }
+      }
+    }
+
+    return results.join("\n");
+  }
+
+  // For metamodel paths, use slash as separator (folder names can contain dots)
+  const targetPath = path.join(METAMODEL_PATH, pathArg.replace(/\//g, path.sep));
 
   try {
     const stat = await fs.stat(targetPath);
 
     if (stat.isDirectory()) {
-      // Read directory - look for .md files and subdirs
+      // Read directory - list indicators in this group
       const entries = await fs.readdir(targetPath, { withFileTypes: true });
       const results = [];
 
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          // Check for section .md file
-          const sectionMdPath = path.join(METAMODEL_PATH, normalized.replace(/\./g, "/"), `${entry.name}.md`);
-          try {
-            const content = await fs.readFile(sectionMdPath, "utf-8");
-            const { type, description } = parseMdFile(content, entry.name);
-            results.push(`${entry.name}:section:${description}`);
-          } catch {
-            results.push(`${entry.name}:section:`);
-          }
-        } else if (entry.name.endsWith(".md") && entry.name !== path.basename(targetPath) + ".md") {
+        if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "_group.md") {
           const name = entry.name.replace(".md", "");
           const content = await fs.readFile(path.join(targetPath, entry.name), "utf-8");
-          const { type, description } = parseMdFile(content, name);
-          results.push(`${name}:${type}:${description}`);
-        }
-      }
-
-      // Also check for nested folder's md files
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const nestedPath = path.join(targetPath, entry.name);
-          const nestedEntries = await fs.readdir(nestedPath, { withFileTypes: true });
-          for (const nested of nestedEntries) {
-            if (nested.name.endsWith(".md")) {
-              const name = nested.name.replace(".md", "");
-              const content = await fs.readFile(path.join(nestedPath, nested.name), "utf-8");
-              const { type, description } = parseMdFile(content, name);
-              results.push(`${entry.name}.${name}:${type}:${description}`);
-            }
-          }
+          const { type, format, description } = parseMdFile(content, name);
+          results.push(`${name}:${type}/${format}:${description}`);
         }
       }
 
       return results.join("\n");
     } else {
-      // Single file - shouldn't happen with proper paths, but handle it
+      // Single file - return full content
       const content = await fs.readFile(targetPath, "utf-8");
       return content;
     }
@@ -151,6 +166,12 @@ async function describeByPath(pathArg) {
 // Tool: read_digital_twin - reads twin data by path
 async function readDigitalTwin(pathArg) {
   const data = await readTwinData();
+
+  // If no path, return all data
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    return data;
+  }
+
   const value = getByPath(data, pathArg);
 
   if (value === undefined) {
@@ -172,7 +193,7 @@ async function writeDigitalTwin(pathArg, value) {
 const server = new Server(
   {
     name: "digital-twin-mcp-server",
-    version: "1.0.0",
+    version: "2.0.0",
   },
   {
     capabilities: {
@@ -188,16 +209,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "describe_by_path",
         description:
-          "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path.",
+          "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description: "Path in metamodel. Both dots and slashes work (e.g., 'i', 'i/agency', 'i.agency')",
+              description: "Path in metamodel. Examples: '/' (root), '01.preferences', '02.agency', '01.preferences/objective'",
             },
           },
-          required: ["path"],
         },
       },
       {
@@ -210,7 +230,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'i.agency.role_set', 'i/agency/role_set')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'stage')",
             },
           },
           required: ["path"],
@@ -226,7 +246,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'i.agency.role_set', 'i/agency/goals')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
             },
             data: {
               description: "Data to write (any JSON value)",

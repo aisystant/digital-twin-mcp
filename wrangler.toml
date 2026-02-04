@@ -22,10 +22,10 @@ routes = [
 [env.staging]
 name = "digital-twin-mcp-staging"
 
-# Optional: Configure KV namespace for persistent storage (future enhancement)
-# [[kv_namespaces]]
-# binding = "DIGITAL_TWIN_DATA"
-# id = "your-kv-namespace-id"
+# KV namespace for persistent twin data storage
+[[kv_namespaces]]
+binding = "DIGITAL_TWIN_DATA"
+id = "640bc613fc57435bbc01da89b5800897"
 
 # Optional: Configure D1 database for SQL storage (future enhancement)
 # [[d1_databases]]

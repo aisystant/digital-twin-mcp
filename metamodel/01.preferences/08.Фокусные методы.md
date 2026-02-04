@@ -1,0 +1,11 @@
+# IND.1.PREF.highlighted_methods
+
+**Name:** Фокусные методы
+**Name (EN):** Highlighted methods
+**Type:** semantic
+**Format:** list[string]
+
+## Flags
+- for_prompts: true
+- for_qualification: false
+- trainee_model: true
