@@ -33,6 +33,19 @@ name = "digital-twin-mcp-staging"
 # database_name = "digital-twin-db"
 # database_id = "your-d1-database-id"
 
-# Optional: Secrets for API authentication
-# Run: wrangler secret put API_KEY
-# Then access via env.API_KEY in worker
+# ============================================
+# Authentication Secrets (Ory.sh)
+# ============================================
+#
+# To enable Ory authentication, set these secrets:
+#
+#   wrangler secret put ORY_PROJECT_URL
+#   # Enter: https://your-project.projects.oryapis.com
+#
+#   wrangler secret put API_KEY
+#   # Enter: your-api-key (optional, for machine-to-machine auth)
+#
+#   wrangler secret put CORS_ORIGIN
+#   # Enter: https://your-frontend.com (optional, defaults to *)
+#
+# Access in worker via env.ORY_PROJECT_URL, env.API_KEY, env.CORS_ORIGIN
