@@ -161,12 +161,12 @@ describe("Metamodel Structure", () => {
   it("should have group folders", async () => {
     const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
     const folders = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    assert.ok(folders.includes("01.preferences"), "Should have preferences folder");
-    assert.ok(folders.includes("02.agency"), "Should have agency folder");
+    assert.ok(folders.includes("01_preferences"), "Should have preferences folder");
+    assert.ok(folders.includes("02_agency"), "Should have agency folder");
   });
 
   it("should have indicators in preference group", async () => {
-    const prefPath = path.join(METAMODEL_PATH, "01.preferences");
+    const prefPath = path.join(METAMODEL_PATH, "01_preferences");
     const entries = await fs.readdir(prefPath);
     const mdFiles = entries.filter((e) => e.endsWith(".md") && e !== "_group.md");
     assert.ok(mdFiles.length > 0, "Should have indicator files");
@@ -179,19 +179,19 @@ describe("describe_by_path", () => {
     const result = await describeByPath("/");
     assert.ok(result.includes("stages:document"), "Should list stages");
     assert.ok(result.includes("degrees:document"), "Should list degrees");
-    assert.ok(result.includes("01.preferences:group"), "Should list preferences group");
+    assert.ok(result.includes("01_preferences:group"), "Should list preferences group");
   });
 
   it("should list indicators in a group", async () => {
     // Use the full folder name as path (folder names contain dots)
-    const result = await describeByPath("01.preferences");
+    const result = await describeByPath("01_preferences");
     assert.ok(result.includes("Цели обучения"), "Should list objective indicator");
     assert.ok(result.includes("Текущие роли"), "Should list role_set indicator");
   });
 
   it("should return indicator content", async () => {
     // Use slash to separate folder from indicator (with Russian name)
-    const result = await describeByPath("01.preferences/09.Цели обучения");
+    const result = await describeByPath("01_preferences/09_Цели обучения");
     assert.ok(result.includes("IND.1.PREF.objective"), "Should have indicator code");
     assert.ok(result.includes("**Name:**"), "Should have name field");
     assert.ok(result.includes("**Type:**"), "Should have type field");
@@ -278,10 +278,10 @@ describe("Path helpers", () => {
 describe("MD file parsing", () => {
   it("should parse indicator metadata", async () => {
     const content = await fs.readFile(
-      path.join(METAMODEL_PATH, "01.preferences", "09.Цели обучения.md"),
+      path.join(METAMODEL_PATH, "01_preferences", "09_Цели обучения.md"),
       "utf-8"
     );
-    const parsed = parseMdFile(content, "09.Цели обучения");
+    const parsed = parseMdFile(content, "09_Цели обучения");
     assert.ok(parsed.name, "Should have name");
     assert.ok(parsed.type, "Should have type");
     assert.ok(parsed.format, "Should have format");
