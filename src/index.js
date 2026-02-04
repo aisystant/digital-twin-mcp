@@ -12,22 +12,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
 const DATA_PATH = path.join(__dirname, "..", "data", "twin.json");
 
-// Load metamodel JSON files
-async function loadMetamodel() {
-  const [stagesData, groupsData, indicatorsData, degreesData] = await Promise.all([
-    fs.readFile(path.join(METAMODEL_PATH, "stages.json"), "utf-8"),
-    fs.readFile(path.join(METAMODEL_PATH, "groups.json"), "utf-8"),
-    fs.readFile(path.join(METAMODEL_PATH, "indicators.json"), "utf-8"),
-    fs.readFile(path.join(METAMODEL_PATH, "degrees.json"), "utf-8"),
-  ]);
-  return {
-    stages: JSON.parse(stagesData),
-    groups: JSON.parse(groupsData),
-    indicators: JSON.parse(indicatorsData),
-    degrees: JSON.parse(degreesData),
-  };
-}
-
 // Helper: read and parse twin data
 async function readTwinData() {
   const content = await fs.readFile(DATA_PATH, "utf-8");
@@ -44,7 +28,7 @@ function normalizePath(pathStr) {
   return pathStr.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
 }
 
-// Helper: get value by path (accepts both "indicators.agency.role_set" and "indicators/agency/role_set")
+// Helper: get value by path (accepts both dots and slashes)
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -69,164 +53,125 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Tool: get_stages - returns all student stages
-async function getStages() {
-  const metamodel = await loadMetamodel();
-  return metamodel.stages;
-}
-
-// Tool: get_indicator_groups - returns all indicator groups
-async function getIndicatorGroups() {
-  const metamodel = await loadMetamodel();
-  return metamodel.groups;
-}
-
-// Tool: get_indicators - returns indicators with optional filters
-async function getIndicators(groupCode, forPrompts, forQualification) {
-  const metamodel = await loadMetamodel();
-  let filtered = metamodel.indicators.indicators;
-
-  if (groupCode) {
-    filtered = filtered.filter(ind => ind.group === groupCode);
-  }
-  if (forPrompts !== undefined) {
-    filtered = filtered.filter(ind => ind.for_prompts === forPrompts);
-  }
-  if (forQualification !== undefined) {
-    filtered = filtered.filter(ind => ind.for_qualification === forQualification);
-  }
-
-  return {
-    ...metamodel.indicators,
-    indicators: filtered,
-    count: filtered.length
+// Helper: parse MD file to extract metadata
+function parseMdFile(content, filename) {
+  const lines = content.split("\n");
+  const result = {
+    name: filename,
+    type: "unknown",
+    format: "unknown",
+    description: ""
   };
+
+  for (const line of lines) {
+    if (line.startsWith("**Name:**")) {
+      result.name = line.replace("**Name:**", "").trim();
+    }
+    if (line.startsWith("**Type:**")) {
+      result.type = line.replace("**Type:**", "").trim();
+    }
+    if (line.startsWith("**Format:**")) {
+      result.format = line.replace("**Format:**", "").trim();
+    }
+    if (line.startsWith("**Description:**")) {
+      result.description = line.replace("**Description:**", "").trim();
+    }
+  }
+
+  // If no explicit description, use first non-header non-meta line
+  if (!result.description) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("**") && !trimmed.startsWith("-")) {
+        result.description = trimmed;
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
-// Tool: get_indicator - returns a single indicator by code
-async function getIndicator(code) {
-  const metamodel = await loadMetamodel();
-  const indicator = metamodel.indicators.indicators.find(ind => ind.code === code);
-  if (!indicator) {
-    return { error: `Indicator not found: ${code}` };
-  }
-  return indicator;
-}
+// Tool: describe_by_path - reads metamodel MD files
+async function describeByPath(pathArg) {
+  // Handle empty or root path - list all groups
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
+    const results = [];
 
-// Tool: get_degrees - returns all qualification degrees
-async function getDegrees() {
-  const metamodel = await loadMetamodel();
-  return metamodel.degrees;
-}
-
-// Tool: get_stage_thresholds - returns thresholds for an indicator across stages
-async function getStageThresholds(indicatorCode) {
-  const metamodel = await loadMetamodel();
-  const indicator = metamodel.indicators.indicators.find(ind => ind.code === indicatorCode);
-
-  if (!indicator) {
-    return { error: `Indicator not found: ${indicatorCode}` };
-  }
-
-  if (!indicator.thresholds) {
-    return {
-      indicator: indicatorCode,
-      message: "This indicator does not have stage thresholds",
-      for_qualification: indicator.for_qualification || false
-    };
-  }
-
-  // Enrich thresholds with stage names from stages.json
-  const enrichedThresholds = {};
-  for (const [stageCode, threshold] of Object.entries(indicator.thresholds)) {
-    const stage = metamodel.stages.stages.find(s => s.code === stageCode);
-    enrichedThresholds[stageCode] = {
-      ...threshold,
-      stage_name: stage?.name || stageCode,
-      stage_order: stage?.order
-    };
-  }
-
-  return {
-    indicator: indicatorCode,
-    indicator_name: indicator.name,
-    unit: indicator.unit,
-    thresholds: enrichedThresholds
-  };
-}
-
-// Tool: validate_value - validates a value against indicator schema
-async function validateValue(indicatorCode, value) {
-  const metamodel = await loadMetamodel();
-  const indicator = metamodel.indicators.indicators.find(ind => ind.code === indicatorCode);
-
-  if (!indicator) {
-    return { valid: false, error: `Indicator not found: ${indicatorCode}` };
-  }
-
-  const errors = [];
-
-  // Check format/type
-  switch (indicator.format) {
-    case "integer":
-      if (!Number.isInteger(value)) {
-        errors.push(`Expected integer, got ${typeof value}`);
+    // List root MD files (stages.md, degrees.md)
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(`${entry.name.replace(".md", "")}:document:Root metamodel document`);
       }
-      break;
-    case "float":
-      if (typeof value !== "number") {
-        errors.push(`Expected number, got ${typeof value}`);
+    }
+
+    // List group folders
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Try to read _group.md for description
+        const groupMdPath = path.join(METAMODEL_PATH, entry.name, "_group.md");
+        try {
+          const content = await fs.readFile(groupMdPath, "utf-8");
+          const firstLine = content.split("\n").find(l => l.startsWith("# "));
+          const desc = firstLine ? firstLine.replace("# ", "").trim() : entry.name;
+          results.push(`${entry.name}:group:${desc}`);
+        } catch {
+          results.push(`${entry.name}:group:`);
+        }
       }
-      break;
-    case "boolean":
-      if (typeof value !== "boolean") {
-        errors.push(`Expected boolean, got ${typeof value}`);
-      }
-      break;
-    case "string":
-    case "structured_text":
-      if (typeof value !== "string") {
-        errors.push(`Expected string, got ${typeof value}`);
-      }
-      break;
-    case "enum":
-      if (indicator.enum_values && !indicator.enum_values.includes(value)) {
-        errors.push(`Value must be one of: ${indicator.enum_values.join(", ")}`);
-      }
-      break;
-    case "date":
-      if (typeof value !== "string" || isNaN(Date.parse(value))) {
-        errors.push(`Expected valid date string`);
-      }
-      break;
-    case "json":
-    case "array":
-      if (typeof value !== "object") {
-        errors.push(`Expected object or array, got ${typeof value}`);
-      }
-      break;
+    }
+
+    return results.join("\n");
   }
 
-  // Check range constraints if present
-  if (indicator.min !== undefined && value < indicator.min) {
-    errors.push(`Value ${value} is below minimum ${indicator.min}`);
-  }
-  if (indicator.max !== undefined && value > indicator.max) {
-    errors.push(`Value ${value} is above maximum ${indicator.max}`);
-  }
+  // For metamodel paths, use slash as separator (folder names can contain dots)
+  const targetPath = path.join(METAMODEL_PATH, pathArg.replace(/\//g, path.sep));
 
-  return {
-    valid: errors.length === 0,
-    indicator: indicatorCode,
-    value,
-    format: indicator.format,
-    errors: errors.length > 0 ? errors : undefined
-  };
+  try {
+    const stat = await fs.stat(targetPath);
+
+    if (stat.isDirectory()) {
+      // Read directory - list indicators in this group
+      const entries = await fs.readdir(targetPath, { withFileTypes: true });
+      const results = [];
+
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "_group.md") {
+          const name = entry.name.replace(".md", "");
+          const content = await fs.readFile(path.join(targetPath, entry.name), "utf-8");
+          const { type, format, description } = parseMdFile(content, name);
+          results.push(`${name}:${type}/${format}:${description}`);
+        }
+      }
+
+      return results.join("\n");
+    } else {
+      // Single file - return full content
+      const content = await fs.readFile(targetPath, "utf-8");
+      return content;
+    }
+  } catch (error) {
+    // Try with .md extension
+    try {
+      const mdPath = targetPath + ".md";
+      const content = await fs.readFile(mdPath, "utf-8");
+      return content;
+    } catch {
+      return `Error: Path not found: ${pathArg}`;
+    }
+  }
 }
 
 // Tool: read_digital_twin - reads twin data by path
 async function readDigitalTwin(pathArg) {
   const data = await readTwinData();
+
+  // If no path, return all data
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    return data;
+  }
+
   const value = getByPath(data, pathArg);
 
   if (value === undefined) {
@@ -248,7 +193,7 @@ async function writeDigitalTwin(pathArg, value) {
 const server = new Server(
   {
     name: "digital-twin-mcp-server",
-    version: "1.0.0",
+    version: "2.0.0",
   },
   {
     capabilities: {
@@ -261,105 +206,20 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
-      // Metamodel tools
       {
-        name: "get_degrees",
+        name: "describe_by_path",
         description:
-          "Get all qualification degrees (DEG.*) from Freshman to Public Figure with descriptions.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_stages",
-        description:
-          "Get all student stages (STG.Student.*) within the Student degree, with period weeks.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_indicator_groups",
-        description:
-          "Get all indicator groups (1.PREF, 2.1-2.10) with their names and categories.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_indicators",
-        description:
-          "Get indicators from the metamodel. Optionally filter by group code or for_prompts/for_qualification flags.",
+          "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
         inputSchema: {
           type: "object",
           properties: {
-            group: {
+            path: {
               type: "string",
-              description: "Filter by group code (e.g., '1.PREF', '2.1', '2.4')",
-            },
-            for_prompts: {
-              type: "boolean",
-              description: "Filter indicators used in prompts",
-            },
-            for_qualification: {
-              type: "boolean",
-              description: "Filter indicators used for qualification assessment",
+              description: "Path in metamodel. Examples: '/' (root), '01.preferences', '02.agency', '01.preferences/objective'",
             },
           },
         },
       },
-      {
-        name: "get_indicator",
-        description:
-          "Get a single indicator by its code with full details including thresholds.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            code: {
-              type: "string",
-              description: "Indicator code (e.g., 'IND.1.PREF.objective', 'IND.2.1.1', 'IND.2.4.2')",
-            },
-          },
-          required: ["code"],
-        },
-      },
-      {
-        name: "get_stage_thresholds",
-        description:
-          "Get threshold values for an indicator across all stages. Useful for understanding qualification criteria.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            indicator: {
-              type: "string",
-              description: "Indicator code (e.g., 'IND.2.1.1' for weekly self-development hours)",
-            },
-          },
-          required: ["indicator"],
-        },
-      },
-      {
-        name: "validate_value",
-        description:
-          "Validate a value against indicator schema (type, format, enum values, min/max).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            indicator: {
-              type: "string",
-              description: "Indicator code to validate against",
-            },
-            value: {
-              description: "Value to validate (any JSON type)",
-            },
-          },
-          required: ["indicator", "value"],
-        },
-      },
-      // Data tools
       {
         name: "read_digital_twin",
         description:
@@ -370,7 +230,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             path: {
               type: "string",
               description:
-                "Path to data (e.g., 'indicators.IND.1.PREF.objective', 'stage', 'degree')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'stage')",
             },
           },
           required: ["path"],
@@ -379,14 +239,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "write_digital_twin",
         description:
-          "Write data to the digital twin by path. Value is validated against indicator schema if path matches an indicator.",
+          "Write data to the digital twin by path. Use dot notation for nested paths.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
               description:
-                "Path to data (e.g., 'indicators.IND.1.PREF.role_set', 'stage')",
+                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
             },
             data: {
               description: "Data to write (any JSON value)",
@@ -404,66 +264,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    if (name === "get_degrees") {
-      const result = await getDegrees();
+    if (name === "describe_by_path") {
+      const result = await describeByPath(args.path);
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "get_stages") {
-      const result = await getStages();
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "get_indicator_groups") {
-      const result = await getIndicatorGroups();
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "get_indicators") {
-      const result = await getIndicators(args.group, args.for_prompts, args.for_qualification);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "get_indicator") {
-      const result = await getIndicator(args.code);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "get_stage_thresholds") {
-      const result = await getStageThresholds(args.indicator);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    if (name === "validate_value") {
-      const result = await validateValue(args.indicator, args.value);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text", text: result }],
       };
     }
 
     if (name === "read_digital_twin") {
       const result = await readDigitalTwin(args.path);
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
       };
     }
 
     if (name === "write_digital_twin") {
       const result = await writeDigitalTwin(args.path, args.data);
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
       };
     }
 
@@ -484,8 +312,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Digital Twin MCP Server running on stdio");
-  console.error("Metamodel tools: get_degrees, get_stages, get_indicator_groups, get_indicators, get_indicator, get_stage_thresholds, validate_value");
-  console.error("Data tools: read_digital_twin, write_digital_twin");
+  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
 }
 
 main().catch((error) => {
