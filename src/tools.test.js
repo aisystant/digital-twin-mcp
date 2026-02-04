@@ -5,12 +5,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// Import test data
-import stages from "./stages.json" with { type: "json" };
-import groups from "./groups.json" with { type: "json" };
-import indicators from "./indicators.json" with { type: "json" };
-import degrees from "./degrees.json" with { type: "json" };
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
 
 // ============ Helper Functions ============
 
@@ -38,281 +38,215 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
+function parseMdFile(content, filename) {
+  const lines = content.split("\n");
+  const result = {
+    name: filename,
+    type: "unknown",
+    format: "unknown",
+    description: "",
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("**Name:**")) {
+      result.name = line.replace("**Name:**", "").trim();
+    }
+    if (line.startsWith("**Type:**")) {
+      result.type = line.replace("**Type:**", "").trim();
+    }
+    if (line.startsWith("**Format:**")) {
+      result.format = line.replace("**Format:**", "").trim();
+    }
+    if (line.startsWith("**Description:**")) {
+      result.description = line.replace("**Description:**", "").trim();
+    }
+  }
+
+  return result;
+}
+
 // ============ Tool Functions ============
 
-function getDegrees() {
-  return degrees;
-}
+async function describeByPath(pathArg) {
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
+    const results = [];
 
-function getStages() {
-  return stages;
-}
-
-function getIndicatorGroups() {
-  return groups;
-}
-
-function getIndicators(groupCode, forPrompts, forQualification) {
-  let filtered = indicators.indicators;
-
-  if (groupCode) {
-    filtered = filtered.filter((ind) => ind.group === groupCode);
-  }
-  if (forPrompts !== undefined) {
-    filtered = filtered.filter((ind) => ind.for_prompts === forPrompts);
-  }
-  if (forQualification !== undefined) {
-    filtered = filtered.filter((ind) => ind.for_qualification === forQualification);
-  }
-
-  return {
-    ...indicators,
-    indicators: filtered,
-    count: filtered.length,
-  };
-}
-
-function getIndicator(code) {
-  const indicator = indicators.indicators.find((ind) => ind.code === code);
-  if (!indicator) {
-    return { error: `Indicator not found: ${code}` };
-  }
-  return indicator;
-}
-
-function getStageThresholds(indicatorCode) {
-  const indicator = indicators.indicators.find((ind) => ind.code === indicatorCode);
-
-  if (!indicator) {
-    return { error: `Indicator not found: ${indicatorCode}` };
-  }
-
-  if (!indicator.thresholds) {
-    return {
-      indicator: indicatorCode,
-      message: "This indicator does not have stage thresholds",
-      for_qualification: indicator.for_qualification || false,
-    };
-  }
-
-  const enrichedThresholds = {};
-  for (const [stageCode, threshold] of Object.entries(indicator.thresholds)) {
-    const stage = stages.stages.find((s) => s.code === stageCode);
-    enrichedThresholds[stageCode] = {
-      ...threshold,
-      stage_name: stage?.name || stageCode,
-      stage_order: stage?.order,
-    };
-  }
-
-  return {
-    indicator: indicatorCode,
-    indicator_name: indicator.name,
-    unit: indicator.unit,
-    thresholds: enrichedThresholds,
-  };
-}
-
-function validateValue(indicatorCode, value) {
-  const indicator = indicators.indicators.find((ind) => ind.code === indicatorCode);
-
-  if (!indicator) {
-    return { valid: false, error: `Indicator not found: ${indicatorCode}` };
-  }
-
-  const errors = [];
-
-  switch (indicator.format) {
-    case "integer":
-      if (!Number.isInteger(value)) {
-        errors.push(`Expected integer, got ${typeof value}`);
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(`${entry.name.replace(".md", "")}:document:Root metamodel document`);
       }
-      break;
-    case "float":
-      if (typeof value !== "number") {
-        errors.push(`Expected number, got ${typeof value}`);
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const groupMdPath = path.join(METAMODEL_PATH, entry.name, "_group.md");
+        try {
+          const content = await fs.readFile(groupMdPath, "utf-8");
+          const firstLine = content.split("\n").find((l) => l.startsWith("# "));
+          const desc = firstLine ? firstLine.replace("# ", "").trim() : entry.name;
+          results.push(`${entry.name}:group:${desc}`);
+        } catch {
+          results.push(`${entry.name}:group:`);
+        }
       }
-      break;
-    case "boolean":
-      if (typeof value !== "boolean") {
-        errors.push(`Expected boolean, got ${typeof value}`);
-      }
-      break;
-    case "string":
-    case "structured_text":
-      if (typeof value !== "string") {
-        errors.push(`Expected string, got ${typeof value}`);
-      }
-      break;
-    case "enum":
-      if (indicator.enum_values && !indicator.enum_values.includes(value)) {
-        errors.push(`Value must be one of: ${indicator.enum_values.join(", ")}`);
-      }
-      break;
+    }
+
+    return results.join("\n");
   }
 
-  if (indicator.min !== undefined && value < indicator.min) {
-    errors.push(`Value ${value} is below minimum ${indicator.min}`);
+  // For metamodel paths, use slash as separator (folder names can contain dots)
+  const targetPath = path.join(METAMODEL_PATH, pathArg.replace(/\//g, path.sep));
+
+  try {
+    const stat = await fs.stat(targetPath);
+
+    if (stat.isDirectory()) {
+      const entries = await fs.readdir(targetPath, { withFileTypes: true });
+      const results = [];
+
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "_group.md") {
+          const name = entry.name.replace(".md", "");
+          const content = await fs.readFile(path.join(targetPath, entry.name), "utf-8");
+          const { type, format, description } = parseMdFile(content, name);
+          results.push(`${name}:${type}/${format}:${description}`);
+        }
+      }
+
+      return results.join("\n");
+    } else {
+      const content = await fs.readFile(targetPath, "utf-8");
+      return content;
+    }
+  } catch {
+    try {
+      const mdPath = targetPath + ".md";
+      const content = await fs.readFile(mdPath, "utf-8");
+      return content;
+    } catch {
+      return `Error: Path not found: ${pathArg}`;
+    }
   }
-  if (indicator.max !== undefined && value > indicator.max) {
-    errors.push(`Value ${value} is above maximum ${indicator.max}`);
+}
+
+function readDigitalTwin(twinData, pathArg) {
+  if (!pathArg || pathArg === "/" || pathArg === ".") {
+    return twinData;
   }
 
-  return {
-    valid: errors.length === 0,
-    indicator: indicatorCode,
-    value,
-    format: indicator.format,
-    errors: errors.length > 0 ? errors : undefined,
-  };
+  const value = getByPath(twinData, pathArg);
+  if (value === undefined) return { error: `Path not found: ${pathArg}` };
+  return value;
+}
+
+function writeDigitalTwin(twinData, pathArg, value) {
+  setByPath(twinData, pathArg, value);
+  return { success: true, path: pathArg, value };
 }
 
 // ============ Tests ============
 
-describe("Metamodel Data", () => {
-  it("should have valid degrees", () => {
-    assert.ok(degrees.degrees.length > 0, "Should have degrees");
-    assert.ok(degrees.degrees.find((d) => d.code === "DEG.Student"), "Should have Student degree");
+describe("Metamodel Structure", () => {
+  it("should have stages.md file", async () => {
+    const content = await fs.readFile(path.join(METAMODEL_PATH, "stages.md"), "utf-8");
+    assert.ok(content.includes("Stages"), "Should have stages content");
   });
 
-  it("should have valid stages", () => {
-    assert.ok(stages.stages.length > 0, "Should have stages");
-    assert.ok(stages.stages.find((s) => s.code === "STG.Student.Practicing"), "Should have Practicing stage");
+  it("should have degrees.md file", async () => {
+    const content = await fs.readFile(path.join(METAMODEL_PATH, "degrees.md"), "utf-8");
+    assert.ok(content.includes("Degrees"), "Should have degrees content");
   });
 
-  it("should have valid groups", () => {
-    assert.ok(groups.groups.length > 0, "Should have groups");
-    assert.ok(groups.groups.find((g) => g.code === "1.PREF"), "Should have preferences group");
+  it("should have group folders", async () => {
+    const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
+    const folders = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    assert.ok(folders.includes("01.preferences"), "Should have preferences folder");
+    assert.ok(folders.includes("02.agency"), "Should have agency folder");
   });
 
-  it("should have valid indicators", () => {
-    assert.ok(indicators.indicators.length > 0, "Should have indicators");
-    assert.ok(
-      indicators.indicators.find((i) => i.code === "IND.1.PREF.objective"),
-      "Should have objective indicator"
-    );
-  });
-});
-
-describe("get_degrees", () => {
-  it("should return all degrees", () => {
-    const result = getDegrees();
-    assert.ok(result.degrees.length >= 9, "Should have at least 9 degrees");
-    assert.equal(result.degrees[0].code, "DEG.Freshman");
+  it("should have indicators in preference group", async () => {
+    const prefPath = path.join(METAMODEL_PATH, "01.preferences");
+    const entries = await fs.readdir(prefPath);
+    const mdFiles = entries.filter((e) => e.endsWith(".md") && e !== "_group.md");
+    assert.ok(mdFiles.length > 0, "Should have indicator files");
+    assert.ok(mdFiles.includes("objective.md"), "Should have objective indicator");
   });
 });
 
-describe("get_stages", () => {
-  it("should return all stages", () => {
-    const result = getStages();
-    assert.ok(result.stages.length >= 5, "Should have at least 5 stages");
+describe("describe_by_path", () => {
+  it("should list all groups at root path", async () => {
+    const result = await describeByPath("/");
+    assert.ok(result.includes("stages:document"), "Should list stages");
+    assert.ok(result.includes("degrees:document"), "Should list degrees");
+    assert.ok(result.includes("01.preferences:group"), "Should list preferences group");
   });
 
-  it("should have period_weeks for stages", () => {
-    const result = getStages();
-    const practicing = result.stages.find((s) => s.code === "STG.Student.Practicing");
-    assert.ok(practicing.period_weeks, "Practicing should have period_weeks");
-  });
-});
-
-describe("get_indicator_groups", () => {
-  it("should return all groups", () => {
-    const result = getIndicatorGroups();
-    assert.ok(result.groups.length >= 11, "Should have at least 11 groups");
+  it("should list indicators in a group", async () => {
+    // Use the full folder name as path (folder names contain dots)
+    const result = await describeByPath("01.preferences");
+    assert.ok(result.includes("objective:"), "Should list objective indicator");
+    assert.ok(result.includes("role_set:"), "Should list role_set indicator");
   });
 
-  it("should have preferences and derived groups", () => {
-    const result = getIndicatorGroups();
-    const pref = result.groups.find((g) => g.code === "1.PREF");
-    const derived = result.groups.find((g) => g.code === "2.1");
-    assert.ok(pref, "Should have preferences group");
-    assert.ok(derived, "Should have derived group 2.1");
-  });
-});
-
-describe("get_indicators", () => {
-  it("should return all indicators without filter", () => {
-    const result = getIndicators();
-    assert.ok(result.count > 0, "Should have indicators");
-    assert.equal(result.indicators.length, result.count);
+  it("should return indicator content", async () => {
+    // Use slash to separate folder from indicator
+    const result = await describeByPath("01.preferences/objective");
+    assert.ok(result.includes("IND.1.PREF.objective"), "Should have indicator code");
+    assert.ok(result.includes("**Name:**"), "Should have name field");
+    assert.ok(result.includes("**Type:**"), "Should have type field");
   });
 
-  it("should filter by group", () => {
-    const result = getIndicators("1.PREF");
-    assert.ok(result.count > 0, "Should have preference indicators");
-    result.indicators.forEach((ind) => {
-      assert.equal(ind.group, "1.PREF", "All should be from 1.PREF group");
-    });
-  });
-
-  it("should filter by for_prompts", () => {
-    const result = getIndicators(undefined, true);
-    result.indicators.forEach((ind) => {
-      assert.equal(ind.for_prompts, true, "All should have for_prompts=true");
-    });
-  });
-
-  it("should filter by for_qualification", () => {
-    const result = getIndicators(undefined, undefined, true);
-    result.indicators.forEach((ind) => {
-      assert.equal(ind.for_qualification, true, "All should have for_qualification=true");
-    });
+  it("should return error for unknown path", async () => {
+    const result = await describeByPath("unknown_folder");
+    assert.ok(result.includes("Error:"), "Should return error");
   });
 });
 
-describe("get_indicator", () => {
-  it("should return indicator by code", () => {
-    const result = getIndicator("IND.1.PREF.objective");
-    assert.equal(result.code, "IND.1.PREF.objective");
-    assert.ok(result.name, "Should have name");
+describe("read_digital_twin", () => {
+  const testData = {
+    indicators: {
+      agency: {
+        role_set: ["developer", "learner"],
+        goals: ["Learn TypeScript"],
+      },
+    },
+    stage: "STG.Student.Practicing",
+  };
+
+  it("should return all data for root path", () => {
+    const result = readDigitalTwin(testData, "/");
+    assert.deepEqual(result, testData);
   });
 
-  it("should return error for unknown code", () => {
-    const result = getIndicator("IND.UNKNOWN");
+  it("should return nested data", () => {
+    const result = readDigitalTwin(testData, "indicators.agency.role_set");
+    assert.deepEqual(result, ["developer", "learner"]);
+  });
+
+  it("should work with slash paths", () => {
+    const result = readDigitalTwin(testData, "indicators/agency/goals");
+    assert.deepEqual(result, ["Learn TypeScript"]);
+  });
+
+  it("should return error for unknown path", () => {
+    const result = readDigitalTwin(testData, "unknown.path");
     assert.ok(result.error, "Should have error");
   });
 });
 
-describe("get_stage_thresholds", () => {
-  it("should return thresholds for indicator with thresholds", () => {
-    const result = getStageThresholds("IND.2.1.1");
-    assert.equal(result.indicator, "IND.2.1.1");
-    assert.ok(result.thresholds, "Should have thresholds");
+describe("write_digital_twin", () => {
+  it("should write data to path", () => {
+    const data = { indicators: {} };
+    const result = writeDigitalTwin(data, "indicators.agency.role_set", ["tester"]);
+    assert.ok(result.success);
+    assert.deepEqual(data.indicators.agency.role_set, ["tester"]);
   });
 
-  it("should return message for indicator without thresholds", () => {
-    const result = getStageThresholds("IND.1.PREF.objective");
-    assert.ok(result.message, "Should have message about no thresholds");
-  });
-
-  it("should return error for unknown indicator", () => {
-    const result = getStageThresholds("IND.UNKNOWN");
-    assert.ok(result.error, "Should have error");
-  });
-});
-
-describe("validate_value", () => {
-  it("should validate integer values", () => {
-    const result = validateValue("IND.1.PREF.weekly_time_budget", 10);
-    assert.equal(result.valid, true);
-  });
-
-  it("should reject wrong type", () => {
-    const result = validateValue("IND.1.PREF.weekly_time_budget", "not a number");
-    assert.equal(result.valid, false);
-    assert.ok(result.errors.length > 0);
-  });
-
-  it("should validate float type", () => {
-    const result = validateValue("IND.1.PREF.weekly_time_budget", 15.5);
-    assert.equal(result.valid, true);
-    assert.equal(result.format, "float");
-  });
-
-  it("should return error for unknown indicator", () => {
-    const result = validateValue("IND.UNKNOWN", 10);
-    assert.equal(result.valid, false);
-    assert.ok(result.error);
+  it("should create nested paths", () => {
+    const data = {};
+    writeDigitalTwin(data, "a.b.c.d", "value");
+    assert.equal(data.a.b.c.d, "value");
   });
 });
 
@@ -338,5 +272,18 @@ describe("Path helpers", () => {
     const obj = {};
     setByPath(obj, "x.y.z", "value");
     assert.equal(obj.x.y.z, "value");
+  });
+});
+
+describe("MD file parsing", () => {
+  it("should parse indicator metadata", async () => {
+    const content = await fs.readFile(
+      path.join(METAMODEL_PATH, "01.preferences", "objective.md"),
+      "utf-8"
+    );
+    const parsed = parseMdFile(content, "objective");
+    assert.ok(parsed.name, "Should have name");
+    assert.ok(parsed.type, "Should have type");
+    assert.ok(parsed.format, "Should have format");
   });
 });

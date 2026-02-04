@@ -1,0 +1,11 @@
+# IND.1.PREF.emotions
+
+**Name:** Мои эмоции и чувства
+**Name (EN):** My emotions and feelings
+**Type:** semantic
+**Format:** list[string]
+
+## Flags
+- for_prompts: true
+- for_qualification: false
+- trainee_model: true
