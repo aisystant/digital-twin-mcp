@@ -215,7 +215,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             path: {
               type: "string",
-              description: "Path in metamodel. Examples: '/' (root), '01.preferences', '02.agency', '01.preferences/objective'",
+              description: "Path in metamodel. Examples: '/' (root), '01_preferences', '02_agency', '01_preferences/09_Цели обучения'",
             },
           },
         },
