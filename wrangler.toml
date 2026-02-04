@@ -5,13 +5,12 @@ compatibility_date = "2024-12-01"
 # Account details - update with your Cloudflare account ID
 # account_id = "your-account-id-here"
 
-# Observability configuration for enhanced logging
-[observability]
-enabled = true
-
-[observability.logs]
-enabled = true
-invocation_logs = true
+# Optional: Observability (requires paid plan)
+# [observability]
+# enabled = true
+# [observability.logs]
+# enabled = true
+# invocation_logs = true
 
 [env.production]
 name = "digital-twin-mcp-prod"
@@ -22,10 +21,12 @@ routes = [
 [env.staging]
 name = "digital-twin-mcp-staging"
 
-# KV namespace for persistent twin data storage
-[[kv_namespaces]]
-binding = "DIGITAL_TWIN_DATA"
-id = "640bc613fc57435bbc01da89b5800897"
+# Optional: KV namespace for persistent twin data storage
+# Create with: wrangler kv:namespace create DIGITAL_TWIN_DATA
+# Then uncomment and update the id below:
+# [[kv_namespaces]]
+# binding = "DIGITAL_TWIN_DATA"
+# id = "your-kv-namespace-id"
 
 # Optional: Configure D1 database for SQL storage (future enhancement)
 # [[d1_databases]]
