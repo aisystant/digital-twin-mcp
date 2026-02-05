@@ -1,135 +1,162 @@
 /**
  * Digital Twin MCP Server - HTTP Transport
  * Tools: describe_by_path, read_digital_twin, write_digital_twin
- * Authentication: Ory.sh
+ * Authentication: OAuth2 via Ory.sh (MCP spec compliant)
  */
 
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 
 // ============================================
-// Ory.sh Authentication
+// OAuth2 / JWT Authentication (MCP Spec)
 // ============================================
 
+// JWKS cache
+let jwksCache = null;
+let jwksCacheTime = 0;
+const JWKS_CACHE_TTL = 3600000; // 1 hour
+
 /**
- * Verify session with Ory Kratos
- * @param {Request} request - Incoming request
- * @param {Object} env - Environment variables
- * @returns {Promise<{valid: boolean, session?: Object, error?: string}>}
+ * Fetch JWKS from Ory
  */
-async function verifyOrySession(request, env) {
-  // Check if auth is enabled
-  if (!env.ORY_PROJECT_URL) {
-    // Auth disabled - allow all requests (dev mode)
-    return { valid: true, session: null };
+async function getJwks(env) {
+  const now = Date.now();
+  if (jwksCache && (now - jwksCacheTime) < JWKS_CACHE_TTL) {
+    return jwksCache;
   }
 
-  // Get session token from header or cookie
-  const authHeader = request.headers.get("Authorization");
-  const cookieHeader = request.headers.get("Cookie");
-
-  let sessionToken = null;
-
-  // Check Bearer token first
-  if (authHeader?.startsWith("Bearer ")) {
-    sessionToken = authHeader.slice(7);
+  const jwksUrl = `${env.ORY_PROJECT_URL}/.well-known/jwks.json`;
+  const response = await fetch(jwksUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch JWKS: ${response.status}`);
   }
 
-  // Check ory_session cookie
-  if (!sessionToken && cookieHeader) {
-    const cookies = Object.fromEntries(
-      cookieHeader.split(";").map(c => {
-        const [key, ...val] = c.trim().split("=");
-        return [key, val.join("=")];
-      })
-    );
-    sessionToken = cookies["ory_session_token"] || cookies["ory_kratos_session"];
+  jwksCache = await response.json();
+  jwksCacheTime = now;
+  return jwksCache;
+}
+
+/**
+ * Import JWK as CryptoKey
+ */
+async function importJwk(jwk) {
+  return await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+}
+
+/**
+ * Base64url decode
+ */
+function base64urlDecode(str) {
+  const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(base64 + padding);
+  return new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+}
+
+/**
+ * Verify JWT signature and claims
+ */
+async function verifyJwt(token, env) {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return { valid: false, error: "Invalid token format" };
   }
 
-  if (!sessionToken) {
-    return { valid: false, error: "No session token provided" };
-  }
+  const [headerB64, payloadB64, signatureB64] = parts;
 
   try {
-    // Verify session with Ory
-    const response = await fetch(`${env.ORY_PROJECT_URL}/sessions/whoami`, {
-      headers: {
-        "Authorization": `Bearer ${sessionToken}`,
-        "Accept": "application/json",
-      },
-    });
+    // Decode header and payload
+    const header = JSON.parse(new TextDecoder().decode(base64urlDecode(headerB64)));
+    const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(payloadB64)));
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        return { valid: false, error: "Session expired or invalid" };
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      return { valid: false, error: "Token expired" };
+    }
+
+    // Check not before
+    if (payload.nbf && payload.nbf > now) {
+      return { valid: false, error: "Token not yet valid" };
+    }
+
+    // Check issuer
+    if (env.ORY_PROJECT_URL && payload.iss) {
+      const expectedIssuer = env.ORY_PROJECT_URL.replace(/\/$/, "");
+      if (!payload.iss.startsWith(expectedIssuer)) {
+        return { valid: false, error: "Invalid issuer" };
       }
-      return { valid: false, error: `Ory API error: ${response.status}` };
     }
 
-    const session = await response.json();
-
-    // Check if session is active
-    if (!session.active) {
-      return { valid: false, error: "Session is not active" };
+    // Get JWKS and find matching key
+    const jwks = await getJwks(env);
+    const jwk = jwks.keys.find(k => k.kid === header.kid);
+    if (!jwk) {
+      return { valid: false, error: "Key not found" };
     }
 
-    return { valid: true, session };
+    // Verify signature
+    const key = await importJwk(jwk);
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const signature = base64urlDecode(signatureB64);
+
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      signature,
+      data
+    );
+
+    if (!valid) {
+      return { valid: false, error: "Invalid signature" };
+    }
+
+    return { valid: true, claims: payload };
   } catch (err) {
-    return { valid: false, error: `Auth verification failed: ${err.message}` };
+    return { valid: false, error: `JWT verification failed: ${err.message}` };
   }
 }
 
 /**
- * Verify API key (alternative auth method)
- * @param {Request} request - Incoming request
- * @param {Object} env - Environment variables
- * @returns {{valid: boolean, error?: string}}
- */
-function verifyApiKey(request, env) {
-  if (!env.API_KEY) {
-    return { valid: true }; // API key auth disabled
-  }
-
-  const apiKey = request.headers.get("X-API-Key");
-
-  if (!apiKey) {
-    return { valid: false, error: "No API key provided" };
-  }
-
-  if (apiKey !== env.API_KEY) {
-    return { valid: false, error: "Invalid API key" };
-  }
-
-  return { valid: true };
-}
-
-/**
- * Main authentication middleware
- * Supports: Ory session, API key, or both
+ * Main authentication - verify Bearer token (JWT)
  */
 async function authenticate(request, env) {
-  // If no auth configured, allow all
-  if (!env.ORY_PROJECT_URL && !env.API_KEY) {
+  // If no auth configured, allow all (dev mode)
+  if (!env.ORY_PROJECT_URL) {
     return { valid: true, method: "none" };
   }
 
-  // Try API key first (faster, no network call)
-  if (env.API_KEY) {
-    const apiKeyResult = verifyApiKey(request, env);
-    if (apiKeyResult.valid) {
-      return { valid: true, method: "api_key" };
-    }
+  const authHeader = request.headers.get("Authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return { valid: false, error: "missing_token" };
   }
 
-  // Try Ory session
-  if (env.ORY_PROJECT_URL) {
-    const sessionResult = await verifyOrySession(request, env);
-    if (sessionResult.valid) {
-      return { valid: true, method: "ory_session", session: sessionResult.session };
-    }
-    return sessionResult;
+  const token = authHeader.slice(7);
+  const result = await verifyJwt(token, env);
+
+  if (result.valid) {
+    return { valid: true, method: "oauth2", claims: result.claims };
   }
 
-  return { valid: false, error: "Authentication required" };
+  return { valid: false, error: result.error };
+}
+
+/**
+ * Build WWW-Authenticate header for 401 responses
+ */
+function buildWwwAuthenticate(env, error = null) {
+  const resourceUrl = env.RESOURCE_URL || "https://digital-twin-mcp.aisystant.workers.dev";
+  let value = `Bearer resource="${resourceUrl}"`;
+  if (error) {
+    value += `, error="${error}"`;
+  }
+  return value;
 }
 
 // ============================================
@@ -454,10 +481,12 @@ async function handleMCP(env, message) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const resourceUrl = env.RESOURCE_URL || `${url.protocol}//${url.host}`;
+
     const cors = {
       "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Allow-Credentials": "true",
     };
 
@@ -466,19 +495,33 @@ export default {
       return new Response(null, { headers: cors });
     }
 
-    // Health check endpoint (no auth required)
-    if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ status: "ok", auth: !!env.ORY_PROJECT_URL }), {
+    // ======= OAuth2 Protected Resource Metadata (RFC 9728) =======
+    if (url.pathname === "/.well-known/oauth-protected-resource") {
+      if (!env.ORY_PROJECT_URL) {
+        return new Response(JSON.stringify({ error: "OAuth not configured" }), {
+          status: 404,
+          headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+
+      const metadata = {
+        resource: resourceUrl,
+        authorization_servers: [env.ORY_PROJECT_URL],
+        scopes_supported: ["openid", "offline_access"],
+        bearer_methods_supported: ["header"],
+        resource_documentation: `${resourceUrl}/docs`,
+      };
+
+      return new Response(JSON.stringify(metadata, null, 2), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
-    // Auth info endpoint (no auth required)
-    if (url.pathname === "/auth/info") {
+    // Health check endpoint (no auth required)
+    if (url.pathname === "/health") {
       return new Response(JSON.stringify({
-        ory_enabled: !!env.ORY_PROJECT_URL,
-        api_key_enabled: !!env.API_KEY,
-        ory_project_url: env.ORY_PROJECT_URL || null,
+        status: "ok",
+        auth: env.ORY_PROJECT_URL ? "oauth2" : "none",
       }), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
@@ -486,22 +529,21 @@ export default {
 
     // MCP endpoint
     if (url.pathname === "/mcp" || url.pathname === "/") {
-      // GET request - show info (no auth for discovery)
+      // GET request - show server info (no auth for discovery)
       if (request.method !== "POST") {
-        return new Response(JSON.stringify({
-          info: "Digital Twin MCP Server v2.0",
-          usage: "POST JSON-RPC to this endpoint",
-          auth: {
-            ory_enabled: !!env.ORY_PROJECT_URL,
-            api_key_enabled: !!env.API_KEY,
-          },
-          storage: env?.DIGITAL_TWIN_DATA ? "KV (persistent)" : "in-memory (non-persistent)",
+        const info = {
+          name: "digital-twin-mcp",
+          version: "2.0.0",
+          description: "Digital Twin MCP Server with OAuth2 authentication",
+          auth: env.ORY_PROJECT_URL ? {
+            type: "oauth2",
+            metadata_url: `${resourceUrl}/.well-known/oauth-protected-resource`,
+          } : { type: "none" },
+          storage: env?.DIGITAL_TWIN_DATA ? "persistent" : "ephemeral",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
-          metamodel: {
-            groups: METAMODEL.groups.length,
-            rootFiles: Object.keys(METAMODEL.rootFiles),
-          },
-        }, null, 2), {
+        };
+
+        return new Response(JSON.stringify(info, null, 2), {
           headers: { ...cors, "Content-Type": "application/json" },
         });
       }
@@ -520,7 +562,11 @@ export default {
           },
         }), {
           status: 401,
-          headers: { ...cors, "Content-Type": "application/json" },
+          headers: {
+            ...cors,
+            "Content-Type": "application/json",
+            "WWW-Authenticate": buildWwwAuthenticate(env, authResult.error),
+          },
         });
       }
 
@@ -532,7 +578,10 @@ export default {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Not found", endpoints: ["/mcp", "/health", "/auth/info"] }), {
+    return new Response(JSON.stringify({
+      error: "Not found",
+      endpoints: ["/mcp", "/.well-known/oauth-protected-resource", "/health"],
+    }), {
       status: 404,
       headers: { ...cors, "Content-Type": "application/json" },
     });

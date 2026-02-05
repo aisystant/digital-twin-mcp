@@ -22,6 +22,20 @@ routes = [
 [env.staging]
 name = "digital-twin-mcp-staging"
 
+# Ory auth testing environment (deployed from ory-auth branch)
+[env.ory-auth]
+name = "digital-twin-mcp-ory-auth"
+
+[env.ory-auth.vars]
+ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
+RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
+CORS_ORIGIN = "*"
+
+# KV for ory-auth env (same as main)
+[[env.ory-auth.kv_namespaces]]
+binding = "DIGITAL_TWIN_DATA"
+id = "640bc613fc57435bbc01da89b5800897"
+
 # KV namespace for persistent twin data storage
 [[kv_namespaces]]
 binding = "DIGITAL_TWIN_DATA"
@@ -34,18 +48,16 @@ id = "640bc613fc57435bbc01da89b5800897"
 # database_id = "your-d1-database-id"
 
 # ============================================
-# Authentication Secrets (Ory.sh)
+# OAuth2 Authentication (Ory.sh)
 # ============================================
 #
-# To enable Ory authentication, set these secrets:
+# This server implements MCP OAuth2 spec (RFC 9728):
+# - /.well-known/oauth-protected-resource - Protected Resource Metadata
+# - JWT validation via Ory JWKS
 #
-#   wrangler secret put ORY_PROJECT_URL
-#   # Enter: https://your-project.projects.oryapis.com
+# Environment variables:
+#   ORY_PROJECT_URL - Ory project URL (authorization server)
+#   RESOURCE_URL - This server's public URL (optional, auto-detected)
+#   CORS_ORIGIN - Allowed CORS origin (optional, defaults to *)
 #
-#   wrangler secret put API_KEY
-#   # Enter: your-api-key (optional, for machine-to-machine auth)
-#
-#   wrangler secret put CORS_ORIGIN
-#   # Enter: https://your-frontend.com (optional, defaults to *)
-#
-# Access in worker via env.ORY_PROJECT_URL, env.API_KEY, env.CORS_ORIGIN
+# For ory-auth env, ORY_PROJECT_URL is set in [env.ory-auth.vars] above.
