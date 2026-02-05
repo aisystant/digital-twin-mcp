@@ -27,52 +27,38 @@ Open another terminal and test:
 # Health check
 curl http://localhost:8787/
 
-# List all 15 tools
+# List all 3 tools
 curl http://localhost:8787/tools
 
-# Call a tool
+# Explore metamodel
 curl -X POST http://localhost:8787/call \
   -H "Content-Type: application/json" \
-  -d '{
-    "tool": "get_learner_summary",
-    "arguments": {"learner_id": "learner_001"}
-  }'
+  -d '{"tool":"describe_by_path","arguments":{"path":"/"}}'
 ```
 
 Press `Ctrl+C` to stop the dev server.
 
 ## Step 3: Deploy to Cloudflare (3 min)
 
-### 3.1 Login
+### Option A: Cloudflare GitHub App (Recommended)
+
+1. Connect your repo to Cloudflare Pages/Workers via GitHub App
+2. Push to main branch
+3. Auto-deploy happens automatically
+
+### Option B: Manual Deploy
 
 ```bash
+# Login
 npx wrangler login
-```
 
-This opens a browser for authentication.
-
-### 3.2 Get Account ID
-
-```bash
+# Get Account ID
 npx wrangler whoami
-```
 
-Copy your **Account ID** from the output.
+# Edit wrangler.toml - add your account ID
+# account_id = "paste-your-account-id-here"
 
-### 3.3 Update Configuration
-
-Edit `wrangler.toml` and add your account ID:
-
-```toml
-name = "digital-twin-mcp"
-main = "src/worker.js"
-compatibility_date = "2024-12-01"
-account_id = "paste-your-account-id-here"  # <- Replace this
-```
-
-### 3.4 Deploy
-
-```bash
+# Deploy
 npm run deploy
 ```
 
@@ -94,88 +80,53 @@ curl $WORKER_URL/tools
 ## That's It!
 
 Your MCP server is now live with:
-- ✅ 15 tools across 5 functional groups
-- ✅ Mock data for testing
-- ✅ HTTP API ready for AI clients
+- ✅ 3 tools (describe_by_path, read_digital_twin, write_digital_twin)
+- ✅ 4-type indicator classification (IND.1-4)
+- ✅ Access control (users can only write to IND.1.*)
 - ✅ Global edge deployment
-
-## Next Steps
-
-1. **Connect to AI Guide:**
-   - Use the worker URL in your AI application
-   - All 15 tools are available via `/call` endpoint
-
-2. **Integrate Real Database:**
-   - Replace mock data with SurrealDB/PostgreSQL
-   - See [DEPLOYMENT.md](./DEPLOYMENT.md) for details
-
-3. **Add Authentication:**
-   - Set up API keys for production
-   - See security section in [README.md](./README.md)
 
 ## Testing All Tools
 
-Here are curl commands to test each tool group:
-
-### Group A: Diagnostics
-
 ```bash
-# Get learner summary
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_learner_summary","arguments":{"learner_id":"learner_001"}}'
+WORKER_URL="http://localhost:8787"  # or your production URL
 
-# Get core metrics
+# 1. Explore metamodel structure
 curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_learner_core_metrics","arguments":{"learner_id":"learner_001","period":"4_weeks"}}'
+  -d '{"tool":"describe_by_path","arguments":{"path":"/"}}'
 
-# Get stage history
+# 2. List declarative indicators
 curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_stage_history","arguments":{"learner_id":"learner_001"}}'
+  -d '{"tool":"describe_by_path","arguments":{"path":"1_declarative"}}'
 
-# Update stage
+# 3. List goals subgroup
 curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"upsert_learner_stage_evaluation","arguments":{"learner_id":"learner_001","stage":"Систематический","reason":"Test"}}'
+  -d '{"tool":"describe_by_path","arguments":{"path":"1_declarative/1_2_goals"}}'
+
+# 4. Read indicator definition
+curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
+  -d '{"tool":"describe_by_path","arguments":{"path":"1_declarative/1_2_goals/09_Цели обучения"}}'
+
+# 5. Read twin data
+curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
+  -d '{"tool":"read_digital_twin","arguments":{"path":"/"}}'
+
+# 6. Write to declarative path (allowed)
+curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
+  -d '{"tool":"write_digital_twin","arguments":{"path":"1_declarative/goals","data":["Learn MCP"]}}'
+
+# 7. Write to collected path (denied)
+curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
+  -d '{"tool":"write_digital_twin","arguments":{"path":"2_collected/time","data":100}}'
+# Returns: {"error":"Access denied: users cannot write to 2_collected"}
 ```
 
-### Group B: Routes
+## Run Unit Tests
 
 ```bash
-# Get learning route
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_learning_route","arguments":{"learner_id":"learner_001"}}'
-
-# Create/update route
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"upsert_learning_route","arguments":{"learner_id":"learner_001","route_data":{"goals":"Test","steps":[{"id":"s1","title":"Step 1","status":"pending","priority":1}]}}}'
-
-# Update step status
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"update_route_step_status","arguments":{"learner_id":"learner_001","step_id":"step_001","new_status":"completed"}}'
+npm test
 ```
 
-### Group C: Sessions
-
-```bash
-# Log session
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"log_guide_session","arguments":{"learner_id":"learner_001","session_type":"weekly","input_summary":"Test session","actions":["Action 1"]}}'
-
-# Get recent sessions
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_recent_guide_sessions","arguments":{"learner_id":"learner_001"}}'
-```
-
-### Group D: Aggregates
-
-```bash
-# Recalculate aggregates
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"recalc_aggregates_for_period","arguments":{"learner_id":"learner_001","period":"1_week"}}'
-
-# Get trends
-curl -X POST $WORKER_URL/call -H "Content-Type: application/json" \
-  -d '{"tool":"get_aggregate_trends","arguments":{"learner_id":"learner_001","metric_keys":["2.1.1","2.2.1"],"period":"4_weeks"}}'
-```
+Expected output: `27 tests passing`
 
 ## Monitoring
 
@@ -204,11 +155,27 @@ https://dash.cloudflare.com → Workers & Pages → digital-twin-mcp
 **Problem:** 404 on production URL
 - **Solution:** Wait 30 seconds after deploy, then try again
 
+## Next Steps
+
+1. **Connect to AI Guide:**
+   - Use the worker URL in your AI application
+   - All 3 tools are available via `/call` endpoint
+
+2. **Customize Metamodel:**
+   - Add indicators to `metamodel/` folders
+   - Run `node scripts/build-metamodel.js`
+   - See [README.md](./README.md) for structure
+
+3. **Review Access Control:**
+   - Users can only write to `1_declarative/*`
+   - System writes to `2_collected/*`, `3_derived/*`
+   - `4_generated/*` is created on-demand
+
 ## Support
 
 - **Full Documentation:** [README.md](./README.md)
 - **Deployment Guide:** [DEPLOYMENT.md](./DEPLOYMENT.md)
-- **MCP Specification:** See `ecosystem-development/content/`
+- **Roadmap:** [ROADMAP.md](./ROADMAP.md)
 
 ---
 
@@ -216,9 +183,8 @@ https://dash.cloudflare.com → Workers & Pages → digital-twin-mcp
 
 ```bash
 npm install
+npm test        # Verify 27 tests pass
 npm run dev     # Test locally
 # Ctrl+C to stop
-npx wrangler login
-# Edit wrangler.toml with your account ID
 npm run deploy  # Go live!
 ```

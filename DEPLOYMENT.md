@@ -84,42 +84,62 @@ curl http://localhost:8787/
 curl http://localhost:8787/tools
 ```
 
-**Call a Tool:**
+**Explore Metamodel:**
 ```bash
 curl -X POST http://localhost:8787/call \
   -H "Content-Type: application/json" \
   -d '{
-    "tool": "get_learner_summary",
-    "arguments": {
-      "learner_id": "learner_001"
-    }
+    "tool": "describe_by_path",
+    "arguments": {"path": "/"}
   }'
 ```
 
 Expected response:
-```json
-{
-  "tool": "get_learner_summary",
-  "result": {
-    "learnerId": "learner_001",
-    "period": { "start": null, "end": null },
-    "summary": {
-      "id": "learner_001",
-      "name": "Sample Learner",
-      "totalHours": 45.5,
-      "sessions": 23,
-      "pomodoros": 67,
-      "completedTasks": 15,
-      "clubActivity": 8
+```
+stages:document:Shared metamodel document
+degrees:document:Shared metamodel document
+1_declarative:category:Declarative indicators
+2_collected:category:Collected indicators
+3_derived:category:Derived indicators
+4_generated:category:Generated indicators
+```
+
+**Read Twin Data:**
+```bash
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "read_digital_twin",
+    "arguments": {"path": "/"}
+  }'
+```
+
+**Write Twin Data (1_declarative only):**
+```bash
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "write_digital_twin",
+    "arguments": {
+      "path": "1_declarative/goals",
+      "data": ["Learn MCP", "Build AI Guide"]
     }
-  },
-  "timestamp": "2024-12-14T12:00:00.000Z"
-}
+  }'
 ```
 
 ## Step 4: Deploy to Cloudflare Workers
 
-### 4.1 Deploy
+### 4.1 Option A: Cloudflare GitHub App (Recommended)
+
+1. Go to Cloudflare Dashboard → Workers & Pages
+2. Create new application → Connect to Git
+3. Select your GitHub repository
+4. Configure build settings (defaults work)
+5. Deploy
+
+Subsequent pushes to main branch auto-deploy.
+
+### 4.2 Option B: Manual Deploy
 
 ```bash
 npm run deploy
@@ -131,7 +151,7 @@ This will:
 3. Provision the worker
 4. Return the deployment URL
 
-### 4.2 Deployment Output
+### 4.3 Deployment Output
 
 You'll see output like:
 ```
@@ -140,7 +160,7 @@ Published digital-twin-mcp (0.45 sec)
   https://digital-twin-mcp.your-account.workers.dev
 ```
 
-### 4.3 Test Production Deployment
+### 4.4 Test Production Deployment
 
 ```bash
 # Replace with your actual URL
@@ -152,16 +172,10 @@ curl $WORKER_URL/
 # List tools
 curl $WORKER_URL/tools
 
-# Call a tool
+# Explore metamodel
 curl -X POST $WORKER_URL/call \
   -H "Content-Type: application/json" \
-  -d '{
-    "tool": "get_learner_core_metrics",
-    "arguments": {
-      "learner_id": "learner_001",
-      "period": "4_weeks"
-    }
-  }'
+  -d '{"tool": "describe_by_path", "arguments": {"path": "1_declarative"}}'
 ```
 
 ## Step 5: Environment-Specific Deployments
@@ -335,11 +349,11 @@ binding = "DIGITAL_TWIN_DATA"
 id = "your-kv-namespace-id"
 ```
 
-Update `src/worker.js`:
+Update worker to use KV:
 
 ```javascript
 // Store data in KV
-await env.DIGITAL_TWIN_DATA.put('learner_001', JSON.stringify(learnerData));
+await env.DIGITAL_TWIN_DATA.put('learner_001', JSON.stringify(twinData));
 
 // Read from KV
 const data = await env.DIGITAL_TWIN_DATA.get('learner_001', 'json');
@@ -430,12 +444,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run tests
+        run: npm test
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
+
+**Note:** If using Cloudflare GitHub App, this workflow is optional.
 
 ### Set GitHub Secrets
 
@@ -450,7 +469,7 @@ After successful deployment:
 
 1. **Integrate with AI Guide**
    - Add MCP server URL to AI configuration
-   - Test all 15 tools from AI client
+   - Test all 3 tools from AI client
    - Monitor usage and performance
 
 2. **Connect Real Database**
@@ -477,5 +496,5 @@ After successful deployment:
 
 ---
 
-**Last Updated:** 2024-12-14
-**Version:** 1.0.0
+**Last Updated:** 2025-02-05
+**Version:** 2.0.0
