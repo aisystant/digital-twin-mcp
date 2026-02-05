@@ -2,6 +2,58 @@
 
 MCP (Model Context Protocol) server for Digital Twin learner data. Provides tools for AI Guide (Проводник) to work with learner profiles based on 4-type indicator classification.
 
+## Позиционирование в архитектуре знаний
+
+digital-twin-mcp — это **Downstream-артефакт (уровень 4)** в экосистеме Aisystant.
+
+### Уровни знаний
+
+```
+Уровень 1: FPF (First Principles Framework)
+│ github.com/ailev/FPF
+▼
+Уровень 2: SPF (Second Principles Framework)
+│ Фреймворк производства Pack'ов
+▼
+Уровень 3: Pack (Доменный source-of-truth)
+│ github.com/aisystant/spf-personal
+▼
+Уровень 4: Downstream  ← digital-twin-mcp здесь
+  Производные артефакты (MCP-серверы, боты, курсы)
+```
+
+| Уровень | Роль | Репозиторий |
+|---------|------|-------------|
+| 1. FPF | Мета-онтология | [ailev/FPF](https://github.com/ailev/FPF) |
+| 2. SPF | Фреймворк производства | [aisystant/spf-personal](https://github.com/aisystant/spf-personal) |
+| 3. Pack | Source-of-truth области | [aisystant/spf-personal](https://github.com/aisystant/spf-personal) |
+| **4. Downstream** | **Производные артефакты** | **Этот репозиторий** |
+
+### Связанные репозитории
+
+| Репозиторий | Связь |
+|-------------|-------|
+| [ecosystem-development](https://github.com/aisystant/ecosystem-development) | Спецификации модели данных ЦД, архитектура MCP-сервера |
+| [spf-personal](https://github.com/aisystant/spf-personal) | Содержание области "Личное развитие" |
+| [s2r](https://github.com/TserenTserenov/s2r) | Методология организации (используется в ecosystem-development) |
+
+### Принцип
+
+Как Downstream-артефакт, digital-twin-mcp:
+- **Реализует** спецификации из ecosystem-development
+- **Использует** терминологию из SPF/Pack
+- **НЕ является** source-of-truth (при противоречии — приоритет у Pack)
+
+## Спецификации
+
+Модель данных цифрового двойника и архитектура MCP-сервера описаны в:
+- [ecosystem-development/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture/](https://github.com/aisystant/ecosystem-development/tree/main/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture)
+
+Ключевые документы:
+- **Модель данных цифрового двойника 3.2.md** — 4 типа показателей (IND.1-4)
+- **MCP-сервер цифрового двойника 3.2.md** — 3 инструмента MCP
+- **Описание цифрового двойника 3.2.md** — концепция и use cases
+
 ## Overview
 
 This server implements a metamodel-driven approach with 3 MCP tools and 4 indicator types (IND.1-4).
