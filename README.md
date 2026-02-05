@@ -1,18 +1,16 @@
 # Digital Twin MCP Server
 
-MCP (Model Context Protocol) server for Digital Twin learner data. Provides tools for AI Guide (Проводник) to work with learner profiles, learning stages, personalized routes, and performance metrics.
+MCP (Model Context Protocol) server for Digital Twin learner data. Provides tools for AI Guide (Проводник) to work with learner profiles based on 4-type indicator classification.
 
 ## Overview
 
-This server implements the architecture described in [MCP-сервер цифрового двойника 3.2](./ecosystem-development/content/3.%20Экосистема%20развития%20%28Система%20создания%29/3.2.%20Архитектура%20—%20Платформа%20и%20подсистемы/3.2.3.%20ИТ-системы/3.2.3.1.%20Цифровой%20двойник/MCP-сервер%20цифрового%20двойника%203.2.md).
+This server implements a metamodel-driven approach with 3 MCP tools and 4 indicator types (IND.1-4).
 
 ### Key Features
 
-- **15 MCP Tools** organized in 5 functional groups (A-E)
-- **Learner Stage Management** - track progression through 5 learning stages
-- **Learning Routes** - create and manage personalized learning paths
-- **Metrics & Analytics** - core performance indicators and trends
-- **Session Logging** - record AI Guide interactions
+- **3 MCP Tools** for metamodel exploration and data management
+- **4-Type Classification** (IND.1-4) with access control
+- **65+ Indicators** organized in hierarchical structure
 - **Dual Deployment** - stdio for local MCP clients + HTTP API for Cloudflare Workers
 
 ## Architecture
@@ -28,69 +26,86 @@ This server implements the architecture described in [MCP-сервер цифр�
                ▼
 ┌─────────────────────────────────────┐
 │  MCP Server (this project)          │
-│  - 15 tools in 5 groups             │
-│  - Read/write operations            │
-│  - Data aggregation                 │
+│  - 3 tools                          │
+│  - Access control (IND.1 writable)  │
+│  - Metamodel-driven                 │
 └──────────────┬──────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────┐
 │  Data Store                         │
-│  - Learner profiles                 │
-│  - Metrics (2.*)                    │
-│  - Routes & sessions                │
+│  - Metamodel (MD files)             │
+│  - Twin data (JSON)                 │
 └─────────────────────────────────────┘
 ```
 
 ## Available Tools
 
-### Group A: Diagnostics and Learner Stages
-
 | Tool | Description |
 |------|-------------|
-| `get_learner_summary` | Summary for a learner for a specified period (hours, sessions, tasks) |
-| `get_learner_core_metrics` | Core derived metrics (2.*) for stage analysis |
-| `get_stage_history` | History of learner stage changes |
-| `upsert_learner_stage_evaluation` | Record or update learner stage evaluation |
+| `describe_by_path` | Navigate metamodel structure. List categories, groups, indicators |
+| `read_digital_twin` | Read data from digital twin by path |
+| `write_digital_twin` | Write data to digital twin (1_declarative only for users) |
 
-### Group B: Routes and Route Steps
+## Indicator Classification (IND.1-4)
 
-| Tool | Description |
-|------|-------------|
-| `get_learning_route` | Get current learning route for a learner |
-| `upsert_learning_route` | Create or update learning route with goals and steps |
-| `update_route_step_status` | Update status of a specific route step |
+```
+PRIMARY DATA:
+├── IND.1.* Declarative — user inputs directly
+│   └── Profile, goals, self-assessment, preferences
+│   └── ✅ User can edit
+│
+└── IND.2.* Collected — automatically from actions
+    └── Courses, time, payments, activity
+    └── 🔒 Read only
 
-### Group C: Guide Sessions and Events
+SECONDARY DATA:
+├── IND.3.* Derived — calculated, stored
+│   └── Agency, stage, mastery, risks
+│   └── 🔒 User cannot modify
+│
+└── IND.4.* Generated — on-demand, not stored
+    └── Recommendations, forecasts, comparisons
+    └── ⚡ Created on the fly
+```
 
-| Tool | Description |
-|------|-------------|
-| `log_guide_session` | Record a guide session (type, summary, actions) |
-| `get_recent_guide_sessions` | Get recent guide sessions for dialog context |
+### Access Control Matrix
 
-### Group D: Aggregates and Dynamics
+| Type | User | Guide | System |
+|------|------|-------|--------|
+| IND.1.* (1_declarative) | Read/Write | Read | Read/Write |
+| IND.2.* (2_collected) | Read | Read | Write |
+| IND.3.* (3_derived) | Read | Read | Write (calc) |
+| IND.4.* (4_generated) | Read | Read/Generate | Generate |
 
-| Tool | Description |
-|------|-------------|
-| `recalc_aggregates_for_period` | Recalculate derived metrics for a period |
-| `get_aggregate_trends` | Get time series trends for specified metrics |
+## Metamodel Structure
 
-### Group E: Universal Tools
-
-| Tool | Description |
-|------|-------------|
-| `read_entities` | Generic tool to read entities by filters |
-| `upsert_entity` | Generic tool to create or update an entity |
-
-## Learning Stages (Ступени Ученика)
-
-The system tracks learners through 5 progressive stages:
-
-1. **Случайный** (Random) - Chaotic learning, inconsistent engagement
-2. **Практикующий** (Practicing) - 15+ minutes daily practice established
-3. **Систематический** (Systematic) - Consistent 4+ week learning patterns
-4. **Дисциплинированный** (Disciplined) - 10+ hours/week for 2-3+ months
-5. **Проактивный** (Proactive) - Self-directed, initiative-driven learning
+```
+metamodel/
+├── 1_declarative/          # IND.1.* (20 indicators)
+│   ├── 1_1_profile/
+│   ├── 1_2_goals/
+│   ├── 1_3_selfeval/
+│   └── 1_4_context/
+│
+├── 2_collected/            # IND.2.* (5 indicators)
+│   ├── 2_5_finance/
+│   ├── 2_8_ai_logs/
+│   └── 2_9_community/
+│
+├── 3_derived/              # IND.3.* (37 indicators)
+│   ├── 3_1_agency/
+│   ├── 3_2_mastery/
+│   └── ... (10 subgroups)
+│
+├── 4_generated/            # IND.4.* (3 indicators)
+│   ├── 4_3_forecasts/
+│   └── 4_4_reports/
+│
+└── _shared/                # Shared definitions
+    ├── stages.md
+    └── degrees.md
+```
 
 ## Installation
 
@@ -99,7 +114,6 @@ The system tracks learners through 5 progressive stages:
 - Node.js 18+
 - npm or yarn
 - Cloudflare account (for deployment)
-- Wrangler CLI (for Cloudflare Workers)
 
 ### Install Dependencies
 
@@ -111,7 +125,7 @@ npm install
 
 ### Option 1: Local MCP Server (stdio)
 
-For use with MCP clients like Claude Desktop or custom AI applications:
+For use with MCP clients like Claude Desktop:
 
 ```bash
 node src/index.js
@@ -149,246 +163,105 @@ curl http://localhost:8787/
 # List all tools
 curl http://localhost:8787/tools
 
-# Call a tool
+# Describe metamodel root
 curl -X POST http://localhost:8787/call \
   -H "Content-Type: application/json" \
   -d '{
-    "tool": "get_learner_summary",
-    "arguments": {
-      "learner_id": "learner_001"
-    }
+    "tool": "describe_by_path",
+    "arguments": {"path": "/"}
   }'
 ```
 
 #### Deploy to Cloudflare
 
-1. **Login to Cloudflare**
+Uses Cloudflare GitHub App for automatic deployment on push to main.
 
-```bash
-npx wrangler login
-```
-
-2. **Update wrangler.toml**
-
-Edit `wrangler.toml` and add your account ID:
-
-```toml
-account_id = "your-cloudflare-account-id"
-```
-
-3. **Deploy**
+Manual deployment:
 
 ```bash
 npm run deploy
 ```
 
-4. **Your API will be available at:**
-
-```
-https://digital-twin-mcp.your-account.workers.dev
-```
-
 ## API Examples
 
-### Get Learner Summary
+### Explore Metamodel
 
 ```bash
-curl -X POST https://your-worker.workers.dev/call \
+# List all categories
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "describe_by_path", "arguments": {"path": "/"}}'
+
+# List subgroups in 1_declarative
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "describe_by_path", "arguments": {"path": "1_declarative"}}'
+
+# List indicators in goals subgroup
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "describe_by_path", "arguments": {"path": "1_declarative/1_2_goals"}}'
+
+# Read specific indicator definition
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "describe_by_path", "arguments": {"path": "1_declarative/1_2_goals/09_Цели обучения"}}'
+```
+
+### Read Twin Data
+
+```bash
+# Read all data
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "read_digital_twin", "arguments": {"path": "/"}}'
+
+# Read specific path
+curl -X POST http://localhost:8787/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "read_digital_twin", "arguments": {"path": "indicators.agency"}}'
+```
+
+### Write Twin Data
+
+```bash
+# Write to 1_declarative (allowed)
+curl -X POST http://localhost:8787/call \
   -H "Content-Type: application/json" \
   -d '{
-    "tool": "get_learner_summary",
+    "tool": "write_digital_twin",
     "arguments": {
-      "learner_id": "learner_001",
-      "period_start": "2024-11-01",
-      "period_end": "2024-12-01"
+      "path": "1_declarative/goals/learning",
+      "data": ["Learn TypeScript", "Master MCP"]
     }
   }'
-```
 
-Response:
-
-```json
-{
-  "tool": "get_learner_summary",
-  "result": {
-    "learnerId": "learner_001",
-    "period": {
-      "start": "2024-11-01",
-      "end": "2024-12-01"
-    },
-    "summary": {
-      "id": "learner_001",
-      "name": "Sample Learner",
-      "totalHours": 45.5,
-      "sessions": 23,
-      "pomodoros": 67,
-      "completedTasks": 15,
-      "clubActivity": 8
-    }
-  },
-  "timestamp": "2024-12-14T10:30:00.000Z"
-}
-```
-
-### Get Core Metrics
-
-```bash
-curl -X POST https://your-worker.workers.dev/call \
+# Write to 2_collected (denied for users)
+curl -X POST http://localhost:8787/call \
   -H "Content-Type: application/json" \
   -d '{
-    "tool": "get_learner_core_metrics",
+    "tool": "write_digital_twin",
     "arguments": {
-      "learner_id": "learner_001",
-      "period": "4_weeks"
+      "path": "2_collected/time/total",
+      "data": 100
     }
   }'
+# Returns: {"error": "Access denied: users cannot write to 2_collected"}
 ```
 
-Response:
+## Testing
 
-```json
-{
-  "tool": "get_learner_core_metrics",
-  "result": {
-    "learnerId": "learner_001",
-    "period": "4_weeks",
-    "metrics": {
-      "2.1.1": { "value": 45.5, "label": "Total hours", "trend": "up" },
-      "2.1.2": { "value": 4.2, "label": "Sessions per week", "trend": "stable" },
-      "2.2.1": { "value": 0.75, "label": "Practice regularity", "trend": "up" },
-      "2.4.2": { "value": "Практикующий", "label": "Current stage" },
-      "2.10.1": { "value": "motivation_gaps", "label": "Stuck profile" }
-    },
-    "calculatedAt": "2024-12-14T10:30:00.000Z"
-  }
-}
-```
-
-### Update Stage Evaluation
+Run tests:
 
 ```bash
-curl -X POST https://your-worker.workers.dev/call \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tool": "upsert_learner_stage_evaluation",
-    "arguments": {
-      "learner_id": "learner_001",
-      "stage": "Систематический",
-      "reason": "Maintained 4+ weeks of consistent daily practice",
-      "metrics_snapshot": {
-        "hours": 45.5,
-        "regularity": 0.85,
-        "weeks_consistent": 5
-      }
-    }
-  }'
+npm test
 ```
 
-### Create Learning Route
+Test stdio server directly:
 
 ```bash
-curl -X POST https://your-worker.workers.dev/call \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tool": "upsert_learning_route",
-    "arguments": {
-      "learner_id": "learner_001",
-      "route_data": {
-        "goals": "Transition to Systematic stage: 30+ min daily for 4+ weeks",
-        "steps": [
-          {
-            "id": "step_001",
-            "title": "Morning learning slot 20 min",
-            "status": "pending",
-            "priority": 1
-          },
-          {
-            "id": "step_002",
-            "title": "Weekly reflection 1 hour",
-            "status": "pending",
-            "priority": 2
-          }
-        ]
-      }
-    }
-  }'
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node src/index.js
 ```
-
-## Use Cases
-
-### Scenario 1: Initial Learner Assessment
-
-AI Guide uses these tools to assess a new learner:
-
-1. `get_learner_summary` - get basic activity data
-2. `get_learner_core_metrics` - analyze stage indicators
-3. `upsert_learner_stage_evaluation` - record initial stage
-4. `upsert_learning_route` - create first personalized route
-5. `log_guide_session` - log the assessment session
-
-### Scenario 2: Weekly Progress Review
-
-For regular check-ins:
-
-1. `get_learner_summary` - last week's activity
-2. `get_learner_core_metrics` - 4-week trends
-3. `get_learning_route` - current route progress
-4. `update_route_step_status` - mark completed steps
-5. `log_guide_session` - record the session
-
-### Scenario 3: Stage Transition
-
-When learner is ready to progress:
-
-1. `get_stage_history` - review progression history
-2. `get_learner_core_metrics` - verify transition criteria
-3. `upsert_learner_stage_evaluation` - record new stage
-4. `upsert_learning_route` - create transition route
-5. `log_guide_session` - document the transition
-
-## Data Model
-
-### Learner Stages Flow
-
-```
-Случайный → Практикующий → Систематический → Дисциплинированный → Проактивный
-(Random)    (Practicing)   (Systematic)      (Disciplined)        (Proactive)
-```
-
-### Key Metrics (2.*)
-
-- **2.1.*** - Hours and regularity
-- **2.2.*** - Practice and mastery level
-- **2.3.*** - Questions and reflection quality
-- **2.4.2** - Current learner stage
-- **2.10.1** - Stuck profile (barriers to progress)
-
-## Configuration
-
-### Environment Variables
-
-For production deployment, set these secrets in Cloudflare:
-
-```bash
-# API authentication (optional)
-wrangler secret put API_KEY
-
-# Database connection (when implementing real DB)
-wrangler secret put DATABASE_URL
-```
-
-### Mock Data vs Production
-
-**Current Version (v1.0):**
-- Uses in-memory mock data
-- Data resets on worker restart
-- Perfect for testing and development
-
-**Future Enhancements:**
-- Connect to SurrealDB or PostgreSQL
-- Use Cloudflare D1 for SQL storage
-- Use Cloudflare KV for caching
-- Implement authentication
 
 ## Development
 
@@ -397,119 +270,57 @@ wrangler secret put DATABASE_URL
 ```
 digital-twin-mcp/
 ├── src/
-│   ├── index.js          # MCP server (stdio)
-│   └── worker.js         # Cloudflare Workers (HTTP)
-├── ecosystem-development/
-│   └── content/          # Specification docs
+│   ├── index.js              # MCP server (stdio)
+│   └── metamodel-data.js     # Generated metamodel data
+├── metamodel/                # MD files defining indicators
+├── data/
+│   └── twin.json             # Twin data store
+├── scripts/
+│   └── build-metamodel.js    # Regenerate metamodel-data.js
 ├── package.json
-├── wrangler.toml         # Cloudflare config
+├── wrangler.toml             # Cloudflare config
 └── README.md
 ```
 
-### Testing Tools
+### Adding New Indicators
 
-```bash
-# Test stdio server locally
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node src/index.js
+1. Determine type (IND.1-4)
+2. Place MD file in correct category/subgroup folder
+3. Use format: `NN_Name.md`
+4. Include required metadata:
+   ```markdown
+   # IND.X.Y.Z
 
-# Test HTTP API locally
-npm run dev
-curl http://localhost:8787/tools
-```
-
-### Adding New Tools
-
-1. Define tool schema in `src/index.js` (ListToolsRequestSchema handler)
-2. Implement tool logic in CallToolRequestSchema handler
-3. Add HTTP endpoint in `src/worker.js`
-4. Update documentation
-
-## Monitoring
-
-### Health Checks
-
-```bash
-# Check if worker is running
-curl https://your-worker.workers.dev/
-
-# List available tools
-curl https://your-worker.workers.dev/tools
-```
-
-### Logging
-
-Cloudflare Workers logs available via:
-
-```bash
-wrangler tail
-```
-
-## Security
-
-### Current Status (v1.0)
-
-- ⚠️ No authentication (development only)
-- ⚠️ CORS open to all origins
-- ⚠️ No rate limiting
-- ⚠️ Mock data only
-
-### Production Recommendations
-
-- [ ] Add API key authentication
-- [ ] Implement rate limiting
-- [ ] Restrict CORS to specific origins
-- [ ] Use HTTPS only
-- [ ] Encrypt sensitive learner data
-- [ ] Implement audit logging
+   **Name:** Indicator name
+   **Name (EN):** English name
+   **Type:** semantic|temporal|categorical
+   **Format:** string|float|enum|structured_text
+   ```
+5. Regenerate data: `node scripts/build-metamodel.js`
+6. Run tests: `npm test`
 
 ## Roadmap
 
-### v1.0 (Current)
-- ✅ All 15 MCP tools implemented
-- ✅ Mock data store
-- ✅ Cloudflare Workers deployment
-- ✅ HTTP API endpoints
+See [ROADMAP.md](./ROADMAP.md) for development plans:
 
-### v1.1 (Next)
-- [ ] Connect to real database (SurrealDB/PostgreSQL)
-- [ ] API authentication
-- [ ] Rate limiting
-- [ ] Automated tests
-
-### v2.0 (Future)
-- [ ] Real-time metrics calculation
-- [ ] Advanced analytics tools
-- [ ] Multi-tenant support
-- [ ] GraphQL API
-- [ ] WebSocket support for live updates
+- **v1.0** ✅ Declarative indicators (IND.1.*)
+- **v2.0** 🟡 Collected indicators (IND.2.*)
+- **v3.0** 🟡 Derived indicators (IND.3.*)
+- **v4.0** 🔴 Generated indicators (IND.4.*)
 
 ## Related Documentation
 
-- [MCP Server Specification](./ecosystem-development/content/3.%20Экосистема%20развития%20%28Система%20создания%29/3.2.%20Архитектура%20—%20Платформа%20и%20подсистемы/3.2.3.%20ИТ-системы/3.2.3.1.%20Цифровой%20двойник/MCP-сервер%20цифрового%20двойника%203.2.md)
+- [ROADMAP.md](./ROADMAP.md) - Development roadmap
+- [QUICKSTART.md](./QUICKSTART.md) - Quick deployment guide
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - Full deployment guide
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 - [Cloudflare Workers Docs](https://developers.cloudflare.com/workers/)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test locally with `npm run dev`
-5. Submit a pull request
 
 ## License
 
 MIT
 
-## Support
-
-For issues and questions:
-- GitHub Issues: [Create an issue](#)
-- Documentation: See `ecosystem-development/content/`
-- MCP Protocol: https://modelcontextprotocol.io/
-
 ---
 
-**Version:** 1.0.0
-**Last Updated:** 2024-12-14
-**Status:** Development (Mock Data)
+**Version:** 2.0.0
+**Last Updated:** 2025-02-05
