@@ -92,32 +92,53 @@ function parseMdFile(content, filename) {
   return result;
 }
 
-// Tool: describe_by_path - reads metamodel MD files
+// Access control matrix for 4-type classification
+const ACCESS_CONTROL = {
+  "1_declarative": { user: "rw", guide: "r", system: "rw" },
+  "2_collected": { user: "r", guide: "r", system: "w" },
+  "3_derived": { user: "r", guide: "r", system: "w" },
+  "4_generated": { user: "r", guide: "rg", system: "g" },
+};
+
+// Helper: check if user can write to path
+function canUserWrite(pathStr) {
+  const category = pathStr.split("/")[0].split(".")[0];
+  const access = ACCESS_CONTROL[category];
+  if (!access) return true; // Allow writes to unknown paths (backward compat)
+  return access.user.includes("w");
+}
+
+// Tool: describe_by_path - reads metamodel MD files (supports nested 4-type structure)
 async function describeByPath(pathArg) {
-  // Handle empty or root path - list all groups
+  // Handle empty or root path - list categories
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     const entries = await fs.readdir(METAMODEL_PATH, { withFileTypes: true });
     const results = [];
 
-    // List root MD files (stages.md, degrees.md)
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith(".md")) {
-        results.push(`${entry.name.replace(".md", "")}:document:Root metamodel document`);
+    // List _shared files first
+    const sharedPath = path.join(METAMODEL_PATH, "_shared");
+    try {
+      const sharedEntries = await fs.readdir(sharedPath, { withFileTypes: true });
+      for (const entry of sharedEntries) {
+        if (entry.isFile() && entry.name.endsWith(".md")) {
+          results.push(`${entry.name.replace(".md", "")}:document:Shared metamodel document`);
+        }
       }
+    } catch {
+      // _shared may not exist
     }
 
-    // List group folders
+    // List category folders (1_declarative, 2_collected, etc.)
     for (const entry of entries) {
-      if (entry.isDirectory()) {
-        // Try to read _group.md for description
+      if (entry.isDirectory() && !entry.name.startsWith("_")) {
         const groupMdPath = path.join(METAMODEL_PATH, entry.name, "_group.md");
         try {
           const content = await fs.readFile(groupMdPath, "utf-8");
           const firstLine = content.split("\n").find(l => l.startsWith("# "));
           const desc = firstLine ? firstLine.replace("# ", "").trim() : entry.name;
-          results.push(`${entry.name}:group:${desc}`);
+          results.push(`${entry.name}:category:${desc}`);
         } catch {
-          results.push(`${entry.name}:group:`);
+          results.push(`${entry.name}:category:`);
         }
       }
     }
@@ -125,17 +146,31 @@ async function describeByPath(pathArg) {
     return results.join("\n");
   }
 
-  // For metamodel paths, use slash as separator (folder names can contain dots)
+  // For metamodel paths, use slash as separator
   const targetPath = path.join(METAMODEL_PATH, pathArg.replace(/\//g, path.sep));
 
   try {
     const stat = await fs.stat(targetPath);
 
     if (stat.isDirectory()) {
-      // Read directory - list indicators in this group
       const entries = await fs.readdir(targetPath, { withFileTypes: true });
       const results = [];
 
+      // List subdirectories (subgroups)
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const subgroupMdPath = path.join(targetPath, entry.name, "_group.md");
+          let desc = entry.name;
+          try {
+            const content = await fs.readFile(subgroupMdPath, "utf-8");
+            const firstLine = content.split("\n").find(l => l.startsWith("# "));
+            if (firstLine) desc = firstLine.replace("# ", "").trim();
+          } catch {}
+          results.push(`${entry.name}:group:${desc}`);
+        }
+      }
+
+      // List MD files (indicators)
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "_group.md") {
           const name = entry.name.replace(".md", "");
@@ -147,7 +182,6 @@ async function describeByPath(pathArg) {
 
       return results.join("\n");
     } else {
-      // Single file - return full content
       const content = await fs.readFile(targetPath, "utf-8");
       return content;
     }
@@ -181,8 +215,16 @@ async function readDigitalTwin(pathArg) {
   return value;
 }
 
-// Tool: write_digital_twin - writes twin data by path
-async function writeDigitalTwin(pathArg, value) {
+// Tool: write_digital_twin - writes twin data by path (with access control)
+async function writeDigitalTwin(pathArg, value, role = "user") {
+  // Check access control for metamodel paths
+  if (!canUserWrite(pathArg) && role === "user") {
+    return {
+      error: `Access denied: users cannot write to ${pathArg.split("/")[0]}`,
+      hint: "Only IND.1.* (1_declarative) paths are writable by users"
+    };
+  }
+
   const data = await readTwinData();
   setByPath(data, pathArg, value);
   await writeTwinData(data);
@@ -209,13 +251,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "describe_by_path",
         description:
-          "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
+          "Describe the digital twin metamodel structure (4-type classification: IND.1-4). Returns categories, groups, and indicators.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description: "Path in metamodel. Examples: '/' (root), '01_preferences', '02_agency', '01_preferences/09_Цели обучения'",
+              description: "Path in metamodel. Examples: '/' (list categories), '1_declarative' (list subgroups), '1_declarative/1_2_goals' (list indicators)",
             },
           },
         },
@@ -223,14 +265,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "read_digital_twin",
         description:
-          "Read data from the digital twin by path. Use dot notation for nested paths.",
+          "Read data from the digital twin by path. All indicator types (IND.1-4) are readable.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'stage')",
+                "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
             },
           },
           required: ["path"],
@@ -239,14 +281,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "write_digital_twin",
         description:
-          "Write data to the digital twin by path. Use dot notation for nested paths.",
+          "Write data to the digital twin. Only IND.1.* (1_declarative) paths are writable by users. IND.2-4 are system-only.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
               description:
-                "Path to data. Both dots and slashes work (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
+                "Path to data. User can write to 1_declarative/* only",
             },
             data: {
               description: "Data to write (any JSON value)",
