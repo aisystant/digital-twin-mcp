@@ -1,5 +1,7 @@
 # Digital Twin MCP Server
 
+> **Тип репозитория:** `Downstream/instrument`
+
 MCP (Model Context Protocol) server for Digital Twin learner data. Provides tools for AI Guide (Проводник) to work with learner profiles based on 4-type indicator classification.
 
 ## Позиционирование в архитектуре знаний
@@ -25,8 +27,8 @@ digital-twin-mcp — это **Downstream-артефакт (уровень 4)** �
 | Уровень | Роль | Репозиторий |
 |---------|------|-------------|
 | 1. FPF | Мета-онтология | [ailev/FPF](https://github.com/ailev/FPF) |
-| 2. SPF | Фреймворк производства | [aisystant/spf-personal](https://github.com/aisystant/spf-personal) |
-| 3. Pack | Source-of-truth области | [aisystant/spf-personal](https://github.com/aisystant/spf-personal) |
+| 2. SPF | Фреймворк производства | [TserenTserenov/SPF](https://github.com/TserenTserenov/SPF) |
+| 3. Pack | Source-of-truth области | [aisystant/spf-personal-pack](https://github.com/aisystant/spf-personal-pack) |
 | **4. Downstream** | **Производные артефакты** | **Этот репозиторий** |
 
 ### Связанные репозитории
@@ -34,7 +36,7 @@ digital-twin-mcp — это **Downstream-артефакт (уровень 4)** �
 | Репозиторий | Связь |
 |-------------|-------|
 | [ecosystem-development](https://github.com/aisystant/ecosystem-development) | Спецификации модели данных ЦД, архитектура MCP-сервера |
-| [spf-personal](https://github.com/aisystant/spf-personal) | Содержание области "Личное развитие" |
+| [spf-personal-pack](https://github.com/aisystant/spf-personal-pack) | Source-of-truth области «Созидатель» |
 | [s2r](https://github.com/TserenTserenov/s2r) | Методология организации (используется в ecosystem-development) |
 
 ### Принцип
