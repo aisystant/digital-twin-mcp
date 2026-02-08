@@ -12,6 +12,11 @@ compatibility_date = "2024-12-01"
 # enabled = true
 # invocation_logs = true
 
+[vars]
+ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
+ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
+CORS_ORIGIN = "*"
+
 [env.production]
 name = "digital-twin-mcp-prod"
 routes = [
@@ -21,12 +26,25 @@ routes = [
 [env.staging]
 name = "digital-twin-mcp-staging"
 
-# Optional: KV namespace for persistent twin data storage
-# Create with: wrangler kv:namespace create DIGITAL_TWIN_DATA
-# Then uncomment and update the id below:
-# [[kv_namespaces]]
-# binding = "DIGITAL_TWIN_DATA"
-# id = "your-kv-namespace-id"
+# Ory auth testing environment (deployed from ory-auth branch)
+[env.ory-auth]
+name = "digital-twin-mcp-ory-auth"
+
+[env.ory-auth.vars]
+ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
+ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
+RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
+CORS_ORIGIN = "*"
+
+# KV for ory-auth env (same as main)
+[[env.ory-auth.kv_namespaces]]
+binding = "DIGITAL_TWIN_DATA"
+id = "640bc613fc57435bbc01da89b5800897"
+
+# KV namespace for persistent twin data storage
+[[kv_namespaces]]
+binding = "DIGITAL_TWIN_DATA"
+id = "640bc613fc57435bbc01da89b5800897"
 
 # Optional: Configure D1 database for SQL storage (future enhancement)
 # [[d1_databases]]
@@ -34,6 +52,29 @@ name = "digital-twin-mcp-staging"
 # database_name = "digital-twin-db"
 # database_id = "your-d1-database-id"
 
-# Optional: Secrets for API authentication
-# Run: wrangler secret put API_KEY
-# Then access via env.API_KEY in worker
+# ============================================
+# OAuth2 Authorization Server (MCP Auth spec)
+# ============================================
+#
+# This server acts as an OAuth2 AS (like Linear MCP), delegating
+# user authentication to Ory.sh via authorization_code flow.
+#
+# Endpoints:
+#   /.well-known/oauth-authorization-server - AS metadata
+#   /register - Dynamic client registration (RFC 7591)
+#   /authorize - Redirects to Ory
+#   /callback - Handles Ory callback
+#   /token - Token exchange + refresh
+#
+# Environment variables:
+#   ORY_PROJECT_URL - Ory project URL
+#   ORY_CLIENT_ID - OAuth2 client ID in Ory (public, in vars)
+#   ORY_CLIENT_SECRET - OAuth2 client secret (wrangler secret!)
+#   RESOURCE_URL - This server's public URL (optional, auto-detected)
+#   CORS_ORIGIN - Allowed CORS origin (optional, defaults to *)
+#
+# Save ORY_CLIENT_SECRET for each env:
+#   npx wrangler secret put ORY_CLIENT_SECRET
+#   npx wrangler secret put ORY_CLIENT_SECRET --env ory-auth
+#   npx wrangler secret put ORY_CLIENT_SECRET --env staging
+#   npx wrangler secret put ORY_CLIENT_SECRET --env production
