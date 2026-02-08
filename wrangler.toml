@@ -13,6 +13,11 @@ enabled = true
 enabled = true
 invocation_logs = true
 
+[vars]
+ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
+ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
+CORS_ORIGIN = "*"
+
 [env.production]
 name = "digital-twin-mcp-prod"
 routes = [
@@ -28,6 +33,7 @@ name = "digital-twin-mcp-ory-auth"
 
 [env.ory-auth.vars]
 ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
+ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
 RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
 CORS_ORIGIN = "*"
 
@@ -48,16 +54,28 @@ id = "640bc613fc57435bbc01da89b5800897"
 # database_id = "your-d1-database-id"
 
 # ============================================
-# OAuth2 Authentication (Ory.sh)
+# OAuth2 Authorization Server (MCP Auth spec)
 # ============================================
 #
-# This server implements MCP OAuth2 spec (RFC 9728):
-# - /.well-known/oauth-protected-resource - Protected Resource Metadata
-# - JWT validation via Ory JWKS
+# This server acts as an OAuth2 AS (like Linear MCP), delegating
+# user authentication to Ory.sh via authorization_code flow.
+#
+# Endpoints:
+#   /.well-known/oauth-authorization-server - AS metadata
+#   /register - Dynamic client registration (RFC 7591)
+#   /authorize - Redirects to Ory
+#   /callback - Handles Ory callback
+#   /token - Token exchange + refresh
 #
 # Environment variables:
-#   ORY_PROJECT_URL - Ory project URL (authorization server)
+#   ORY_PROJECT_URL - Ory project URL
+#   ORY_CLIENT_ID - OAuth2 client ID in Ory (public, in vars)
+#   ORY_CLIENT_SECRET - OAuth2 client secret (wrangler secret!)
 #   RESOURCE_URL - This server's public URL (optional, auto-detected)
 #   CORS_ORIGIN - Allowed CORS origin (optional, defaults to *)
 #
-# For ory-auth env, ORY_PROJECT_URL is set in [env.ory-auth.vars] above.
+# Save ORY_CLIENT_SECRET for each env:
+#   npx wrangler secret put ORY_CLIENT_SECRET
+#   npx wrangler secret put ORY_CLIENT_SECRET --env ory-auth
+#   npx wrangler secret put ORY_CLIENT_SECRET --env staging
+#   npx wrangler secret put ORY_CLIENT_SECRET --env production

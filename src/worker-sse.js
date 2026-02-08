@@ -1,158 +1,480 @@
 /**
  * Digital Twin MCP Server - HTTP Transport
  * Tools: describe_by_path, read_digital_twin, write_digital_twin
- * Authentication: OAuth2 via Ory.sh (MCP spec compliant)
+ * Authentication: OAuth2 Authorization Server (MCP spec compliant)
+ *   - Delegates user authentication to Ory.sh
+ *   - Dynamic client registration (RFC 7591)
+ *   - PKCE support (RFC 7636)
  */
 
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 
 // ============================================
-// OAuth2 / JWT Authentication (MCP Spec)
+// OAuth2 Authorization Server - Crypto Helpers
 // ============================================
 
-// JWKS cache
-let jwksCache = null;
-let jwksCacheTime = 0;
-const JWKS_CACHE_TTL = 3600000; // 1 hour
+function generateRandomString(length = 32) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-/**
- * Fetch JWKS from Ory
- */
-async function getJwks(env) {
-  const now = Date.now();
-  if (jwksCache && (now - jwksCacheTime) < JWKS_CACHE_TTL) {
-    return jwksCache;
-  }
+function base64urlEncode(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
-  const jwksUrl = `${env.ORY_PROJECT_URL}/.well-known/jwks.json`;
-  const response = await fetch(jwksUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch JWKS: ${response.status}`);
-  }
+async function sha256(plain) {
+  const data = new TextEncoder().encode(plain);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return base64urlEncode(hash);
+}
 
-  jwksCache = await response.json();
-  jwksCacheTime = now;
-  return jwksCache;
+// ============================================
+// OAuth2 Authorization Server - KV Storage
+// ============================================
+
+// Key patterns and TTLs:
+//   oauth:client:{id}       - client registration (permanent)
+//   oauth:code:{code}       - auth code + PKCE + user_id (5 min)
+//   oauth:token:{token}     - access token + user_id (1 hour)
+//   oauth:refresh:{token}   - refresh token + user_id + ory_refresh (30 days)
+//   oauth:state:{state}     - pending auth state (10 min)
+
+const TTL = {
+  CODE: 300,          // 5 minutes
+  TOKEN: 3600,        // 1 hour
+  REFRESH: 2592000,   // 30 days
+  STATE: 600,         // 10 minutes
+};
+
+async function kvPut(env, key, value, ttl) {
+  const opts = ttl ? { expirationTtl: ttl } : {};
+  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(value), opts);
+}
+
+async function kvGet(env, key) {
+  return await env.DIGITAL_TWIN_DATA.get(key, "json");
+}
+
+async function kvDelete(env, key) {
+  await env.DIGITAL_TWIN_DATA.delete(key);
+}
+
+// ============================================
+// OAuth2 Authorization Server - Endpoints
+// ============================================
+
+function getBaseUrl(env, request) {
+  if (env.RESOURCE_URL) return env.RESOURCE_URL.replace(/\/$/, "");
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}`;
 }
 
 /**
- * Import JWK as CryptoKey
+ * GET /.well-known/oauth-authorization-server
+ * Authorization Server Metadata (RFC 8414)
  */
-async function importJwk(jwk) {
-  return await crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
+function handleASMetadata(baseUrl) {
+  return {
+    issuer: baseUrl,
+    authorization_endpoint: `${baseUrl}/authorize`,
+    token_endpoint: `${baseUrl}/token`,
+    registration_endpoint: `${baseUrl}/register`,
+    scopes_supported: ["openid", "offline_access"],
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    token_endpoint_auth_methods_supported: ["none"],
+    code_challenge_methods_supported: ["S256"],
+  };
 }
 
 /**
- * Base64url decode
+ * POST /register
+ * Dynamic Client Registration (RFC 7591)
  */
-function base64urlDecode(str) {
-  const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const binary = atob(base64 + padding);
-  return new Uint8Array([...binary].map(c => c.charCodeAt(0)));
-}
-
-/**
- * Verify JWT signature and claims
- */
-async function verifyJwt(token, env) {
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return { valid: false, error: "Invalid token format" };
-  }
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-
+async function handleRegister(request, env) {
+  let body;
   try {
-    // Decode header and payload
-    const header = JSON.parse(new TextDecoder().decode(base64urlDecode(headerB64)));
-    const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(payloadB64)));
-
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) {
-      return { valid: false, error: "Token expired" };
-    }
-
-    // Check not before
-    if (payload.nbf && payload.nbf > now) {
-      return { valid: false, error: "Token not yet valid" };
-    }
-
-    // Check issuer
-    if (env.ORY_PROJECT_URL && payload.iss) {
-      const expectedIssuer = env.ORY_PROJECT_URL.replace(/\/$/, "");
-      if (!payload.iss.startsWith(expectedIssuer)) {
-        return { valid: false, error: "Invalid issuer" };
-      }
-    }
-
-    // Get JWKS and find matching key
-    const jwks = await getJwks(env);
-    const jwk = jwks.keys.find(k => k.kid === header.kid);
-    if (!jwk) {
-      return { valid: false, error: "Key not found" };
-    }
-
-    // Verify signature
-    const key = await importJwk(jwk);
-    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-    const signature = base64urlDecode(signatureB64);
-
-    const valid = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5",
-      key,
-      signature,
-      data
-    );
-
-    if (!valid) {
-      return { valid: false, error: "Invalid signature" };
-    }
-
-    return { valid: true, claims: payload };
-  } catch (err) {
-    return { valid: false, error: `JWT verification failed: ${err.message}` };
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_request", error_description: "Invalid JSON body" }, 400);
   }
+
+  const clientId = generateRandomString(16);
+  const clientData = {
+    client_id: clientId,
+    client_name: body.client_name || "Unknown Client",
+    redirect_uris: body.redirect_uris || [],
+    grant_types: body.grant_types || ["authorization_code"],
+    response_types: body.response_types || ["code"],
+    token_endpoint_auth_method: body.token_endpoint_auth_method || "none",
+    created_at: Date.now(),
+  };
+
+  if (!clientData.redirect_uris.length) {
+    return jsonResponse({
+      error: "invalid_client_metadata",
+      error_description: "redirect_uris is required",
+    }, 400);
+  }
+
+  await kvPut(env, `oauth:client:${clientId}`, clientData);
+
+  return jsonResponse({
+    client_id: clientId,
+    client_name: clientData.client_name,
+    redirect_uris: clientData.redirect_uris,
+    grant_types: clientData.grant_types,
+    response_types: clientData.response_types,
+    token_endpoint_auth_method: clientData.token_endpoint_auth_method,
+  }, 201);
 }
 
 /**
- * Main authentication - verify Bearer token (JWT)
+ * GET /authorize
+ * Stores PKCE state, redirects to Ory /oauth2/auth
  */
+async function handleAuthorize(request, env, baseUrl) {
+  const url = new URL(request.url);
+  const clientId = url.searchParams.get("client_id");
+  const redirectUri = url.searchParams.get("redirect_uri");
+  const state = url.searchParams.get("state");
+  const codeChallenge = url.searchParams.get("code_challenge");
+  const codeChallengeMethod = url.searchParams.get("code_challenge_method");
+  const scope = url.searchParams.get("scope") || "openid offline_access";
+
+  if (!clientId || !redirectUri || !codeChallenge) {
+    return jsonResponse({
+      error: "invalid_request",
+      error_description: "client_id, redirect_uri, and code_challenge are required",
+    }, 400);
+  }
+
+  if (codeChallengeMethod && codeChallengeMethod !== "S256") {
+    return jsonResponse({
+      error: "invalid_request",
+      error_description: "Only S256 code_challenge_method is supported",
+    }, 400);
+  }
+
+  // Validate client
+  const client = await kvGet(env, `oauth:client:${clientId}`);
+  if (!client) {
+    return jsonResponse({ error: "invalid_client", error_description: "Unknown client_id" }, 400);
+  }
+
+  if (!client.redirect_uris.includes(redirectUri)) {
+    return jsonResponse({
+      error: "invalid_request",
+      error_description: "redirect_uri not registered for this client",
+    }, 400);
+  }
+
+  // Generate internal state to link Ory callback back to this request
+  const internalState = generateRandomString(32);
+  await kvPut(env, `oauth:state:${internalState}`, {
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    client_state: state,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod || "S256",
+    scope,
+    created_at: Date.now(),
+  }, TTL.STATE);
+
+  // Redirect to Ory authorization endpoint
+  const oryAuthUrl = new URL(`${env.ORY_PROJECT_URL}/oauth2/auth`);
+  oryAuthUrl.searchParams.set("client_id", env.ORY_CLIENT_ID);
+  oryAuthUrl.searchParams.set("response_type", "code");
+  oryAuthUrl.searchParams.set("redirect_uri", `${baseUrl}/callback`);
+  oryAuthUrl.searchParams.set("scope", "openid offline_access");
+  oryAuthUrl.searchParams.set("state", internalState);
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: oryAuthUrl.toString() },
+  });
+}
+
+/**
+ * GET /callback
+ * Handles Ory redirect, exchanges Ory code for token, issues MCP auth code
+ */
+async function handleCallback(request, env, baseUrl) {
+  const url = new URL(request.url);
+  const oryCode = url.searchParams.get("code");
+  const internalState = url.searchParams.get("state");
+  const error = url.searchParams.get("error");
+
+  if (error) {
+    const errorDesc = url.searchParams.get("error_description") || "Authorization denied";
+    return new Response(`Authorization failed: ${errorDesc}`, { status: 400 });
+  }
+
+  if (!oryCode || !internalState) {
+    return new Response("Missing code or state parameter", { status: 400 });
+  }
+
+  // Retrieve pending auth state
+  const pendingState = await kvGet(env, `oauth:state:${internalState}`);
+  if (!pendingState) {
+    return new Response("Invalid or expired state", { status: 400 });
+  }
+
+  // Clean up state
+  await kvDelete(env, `oauth:state:${internalState}`);
+
+  // Exchange Ory code for Ory token
+  let oryTokenData;
+  try {
+    const tokenResponse = await fetch(`${env.ORY_PROJECT_URL}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: oryCode,
+        redirect_uri: `${baseUrl}/callback`,
+        client_id: env.ORY_CLIENT_ID,
+        client_secret: env.ORY_CLIENT_SECRET,
+      }).toString(),
+    });
+
+    if (!tokenResponse.ok) {
+      const errBody = await tokenResponse.text();
+      console.error("Ory token exchange failed:", tokenResponse.status, errBody);
+      return new Response("Failed to exchange authorization code", { status: 502 });
+    }
+
+    oryTokenData = await tokenResponse.json();
+  } catch (err) {
+    console.error("Ory token exchange error:", err);
+    return new Response("Failed to exchange authorization code", { status: 502 });
+  }
+
+  // Extract user identity from Ory ID token or access token
+  let userId;
+  if (oryTokenData.id_token) {
+    // Decode JWT payload (we trust Ory, no signature verification needed for sub extraction)
+    try {
+      const parts = oryTokenData.id_token.split(".");
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      userId = payload.sub;
+    } catch {
+      console.error("Failed to decode Ory id_token");
+    }
+  }
+
+  if (!userId) {
+    // Fallback: use userinfo endpoint
+    try {
+      const userinfoResp = await fetch(`${env.ORY_PROJECT_URL}/userinfo`, {
+        headers: { Authorization: `Bearer ${oryTokenData.access_token}` },
+      });
+      if (userinfoResp.ok) {
+        const userinfo = await userinfoResp.json();
+        userId = userinfo.sub;
+      }
+    } catch {
+      console.error("Failed to fetch userinfo from Ory");
+    }
+  }
+
+  if (!userId) {
+    return new Response("Failed to identify user", { status: 502 });
+  }
+
+  // Generate MCP authorization code
+  const mcpCode = generateRandomString(32);
+  await kvPut(env, `oauth:code:${mcpCode}`, {
+    client_id: pendingState.client_id,
+    redirect_uri: pendingState.redirect_uri,
+    code_challenge: pendingState.code_challenge,
+    code_challenge_method: pendingState.code_challenge_method,
+    user_id: userId,
+    ory_refresh_token: oryTokenData.refresh_token || null,
+    created_at: Date.now(),
+  }, TTL.CODE);
+
+  // Redirect back to client with MCP auth code
+  const redirectUrl = new URL(pendingState.redirect_uri);
+  redirectUrl.searchParams.set("code", mcpCode);
+  if (pendingState.client_state) {
+    redirectUrl.searchParams.set("state", pendingState.client_state);
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: redirectUrl.toString() },
+  });
+}
+
+/**
+ * POST /token
+ * Token exchange (authorization_code + PKCE) and refresh_token grant
+ */
+async function handleToken(request, env) {
+  let body;
+  try {
+    const text = await request.text();
+    body = Object.fromEntries(new URLSearchParams(text));
+  } catch {
+    return jsonResponse({ error: "invalid_request", error_description: "Invalid request body" }, 400);
+  }
+
+  const grantType = body.grant_type;
+
+  if (grantType === "authorization_code") {
+    return handleAuthorizationCodeGrant(body, env);
+  } else if (grantType === "refresh_token") {
+    return handleRefreshTokenGrant(body, env);
+  } else {
+    return jsonResponse({ error: "unsupported_grant_type" }, 400);
+  }
+}
+
+async function handleAuthorizationCodeGrant(body, env) {
+  const { code, code_verifier, client_id, redirect_uri } = body;
+
+  if (!code || !code_verifier || !client_id) {
+    return jsonResponse({
+      error: "invalid_request",
+      error_description: "code, code_verifier, and client_id are required",
+    }, 400);
+  }
+
+  // Retrieve and validate auth code
+  const codeData = await kvGet(env, `oauth:code:${code}`);
+  if (!codeData) {
+    return jsonResponse({ error: "invalid_grant", error_description: "Invalid or expired code" }, 400);
+  }
+
+  // Delete code (single use)
+  await kvDelete(env, `oauth:code:${code}`);
+
+  // Validate client_id
+  if (codeData.client_id !== client_id) {
+    return jsonResponse({ error: "invalid_grant", error_description: "client_id mismatch" }, 400);
+  }
+
+  // Validate redirect_uri if provided
+  if (redirect_uri && codeData.redirect_uri !== redirect_uri) {
+    return jsonResponse({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, 400);
+  }
+
+  // Validate PKCE
+  const computedChallenge = await sha256(code_verifier);
+  if (computedChallenge !== codeData.code_challenge) {
+    return jsonResponse({ error: "invalid_grant", error_description: "PKCE verification failed" }, 400);
+  }
+
+  // Issue MCP tokens
+  const accessToken = generateRandomString(32);
+  const refreshToken = generateRandomString(32);
+
+  await kvPut(env, `oauth:token:${accessToken}`, {
+    user_id: codeData.user_id,
+    client_id,
+    scope: "openid offline_access",
+    created_at: Date.now(),
+  }, TTL.TOKEN);
+
+  await kvPut(env, `oauth:refresh:${refreshToken}`, {
+    user_id: codeData.user_id,
+    client_id,
+    ory_refresh_token: codeData.ory_refresh_token,
+    scope: "openid offline_access",
+    created_at: Date.now(),
+  }, TTL.REFRESH);
+
+  return jsonResponse({
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: TTL.TOKEN,
+    refresh_token: refreshToken,
+    scope: "openid offline_access",
+  });
+}
+
+async function handleRefreshTokenGrant(body, env) {
+  const { refresh_token, client_id } = body;
+
+  if (!refresh_token || !client_id) {
+    return jsonResponse({
+      error: "invalid_request",
+      error_description: "refresh_token and client_id are required",
+    }, 400);
+  }
+
+  const refreshData = await kvGet(env, `oauth:refresh:${refresh_token}`);
+  if (!refreshData) {
+    return jsonResponse({ error: "invalid_grant", error_description: "Invalid or expired refresh token" }, 400);
+  }
+
+  if (refreshData.client_id !== client_id) {
+    return jsonResponse({ error: "invalid_grant", error_description: "client_id mismatch" }, 400);
+  }
+
+  // Delete old refresh token (rotation)
+  await kvDelete(env, `oauth:refresh:${refresh_token}`);
+
+  // Issue new tokens
+  const newAccessToken = generateRandomString(32);
+  const newRefreshToken = generateRandomString(32);
+
+  await kvPut(env, `oauth:token:${newAccessToken}`, {
+    user_id: refreshData.user_id,
+    client_id,
+    scope: refreshData.scope || "openid offline_access",
+    created_at: Date.now(),
+  }, TTL.TOKEN);
+
+  await kvPut(env, `oauth:refresh:${newRefreshToken}`, {
+    user_id: refreshData.user_id,
+    client_id,
+    ory_refresh_token: refreshData.ory_refresh_token,
+    scope: refreshData.scope || "openid offline_access",
+    created_at: Date.now(),
+  }, TTL.REFRESH);
+
+  return jsonResponse({
+    access_token: newAccessToken,
+    token_type: "Bearer",
+    expires_in: TTL.TOKEN,
+    refresh_token: newRefreshToken,
+    scope: refreshData.scope || "openid offline_access",
+  });
+}
+
+// ============================================
+// Authentication - KV Token Lookup
+// ============================================
+
 async function authenticate(request, env) {
-  // If no auth configured, allow all (dev mode)
-  if (!env.ORY_PROJECT_URL) {
-    return { valid: true, method: "none" };
+  // If no KV configured, allow all (dev mode)
+  if (!env?.DIGITAL_TWIN_DATA) {
+    return { valid: true, userId: null };
   }
 
   const authHeader = request.headers.get("Authorization");
-
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return { valid: false, error: "missing_token" };
   }
 
   const token = authHeader.slice(7);
-  const result = await verifyJwt(token, env);
+  const tokenData = await kvGet(env, `oauth:token:${token}`);
 
-  if (result.valid) {
-    return { valid: true, method: "oauth2", claims: result.claims };
+  if (!tokenData) {
+    return { valid: false, error: "invalid_token" };
   }
 
-  return { valid: false, error: result.error };
+  return { valid: true, userId: tokenData.user_id };
 }
 
-/**
- * Build WWW-Authenticate header for 401 responses
- */
-function buildWwwAuthenticate(env, error = null) {
-  const resourceUrl = env.RESOURCE_URL || "https://digital-twin-mcp.aisystant.workers.dev";
-  let value = `Bearer resource="${resourceUrl}"`;
+function buildWwwAuthenticate(baseUrl, error = null) {
+  let value = `Bearer resource="${baseUrl}"`;
   if (error) {
     value += `, error="${error}"`;
   }
@@ -163,7 +485,6 @@ function buildWwwAuthenticate(env, error = null) {
 // Twin Data Storage
 // ============================================
 
-// Default twin data (used when KV is empty)
 const DEFAULT_TWIN_DATA = {
   indicators: {
     agency: {
@@ -186,17 +507,14 @@ const DEFAULT_TWIN_DATA = {
   },
 };
 
-// KV key prefix for twin data
 const TWIN_KEY_PREFIX = "twin:";
 const DEFAULT_USER = "default";
 
-// Get KV key for user
 function getTwinKey(userId) {
   const safeUserId = (userId || DEFAULT_USER).replace(/[^a-zA-Z0-9_-]/g, "_");
   return `${TWIN_KEY_PREFIX}${safeUserId}`;
 }
 
-// Get twin data from KV (or default if not exists)
 async function getTwinData(env, userId) {
   if (!env?.DIGITAL_TWIN_DATA) {
     return { ...DEFAULT_TWIN_DATA };
@@ -206,7 +524,6 @@ async function getTwinData(env, userId) {
   return data || { ...DEFAULT_TWIN_DATA };
 }
 
-// Save twin data to KV
 async function saveTwinData(env, userId, data) {
   if (!env?.DIGITAL_TWIN_DATA) {
     return false;
@@ -216,12 +533,10 @@ async function saveTwinData(env, userId, data) {
   return true;
 }
 
-// Normalize path: both dots and slashes work
 function normalizePath(p) {
   return p.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
 }
 
-// Get value by path
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -232,7 +547,6 @@ function getByPath(obj, pathStr) {
   return current;
 }
 
-// Set value by path
 function setByPath(obj, pathStr, value) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -243,7 +557,6 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Parse MD file to extract metadata
 function parseMdFile(content, filename) {
   const lines = content.split("\n");
   const result = {
@@ -273,18 +586,14 @@ function parseMdFile(content, filename) {
 
 // ============ Tools ============
 
-// Tool: describe_by_path - reads metamodel MD content
 function describeByPath(pathArg) {
-  // Handle empty or root path - list all groups
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     const results = [];
 
-    // List root files
     for (const [name, _content] of Object.entries(METAMODEL.rootFiles)) {
       results.push(`${name}:document:Root metamodel document`);
     }
 
-    // List group folders
     for (const group of METAMODEL.groups) {
       const firstLine = group.description.split("\n").find((l) => l.startsWith("# "));
       const desc = firstLine ? firstLine.replace("# ", "").trim() : group.name;
@@ -297,18 +606,15 @@ function describeByPath(pathArg) {
   const normalized = normalizePath(pathArg);
   const parts = normalized.split(".");
 
-  // Check if it's a root file (stages, degrees)
   if (parts.length === 1 && METAMODEL.rootFiles[parts[0]]) {
     return METAMODEL.rootFiles[parts[0]];
   }
 
-  // Check if it's a group
   const group = getGroup(parts[0]);
   if (!group) {
     return `Error: Path not found: ${pathArg}`;
   }
 
-  // If just group name, list all indicators
   if (parts.length === 1) {
     const results = [];
     for (const [name, content] of Object.entries(group.indicators)) {
@@ -318,7 +624,6 @@ function describeByPath(pathArg) {
     return results.join("\n");
   }
 
-  // Get specific indicator
   const indicatorContent = getIndicator(parts[0], parts[1]);
   if (!indicatorContent) {
     return `Error: Indicator not found: ${pathArg}`;
@@ -327,11 +632,9 @@ function describeByPath(pathArg) {
   return indicatorContent;
 }
 
-// Tool: read_digital_twin
 async function readDigitalTwin(env, pathArg, userId) {
   const twinData = await getTwinData(env, userId);
 
-  // If no path, return all data
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     return twinData;
   }
@@ -341,7 +644,6 @@ async function readDigitalTwin(env, pathArg, userId) {
   return value;
 }
 
-// Tool: write_digital_twin
 async function writeDigitalTwin(env, pathArg, value, userId) {
   const twinData = await getTwinData(env, userId);
   setByPath(twinData, pathArg, value);
@@ -357,7 +659,6 @@ async function writeDigitalTwin(env, pathArg, value, userId) {
 
 // ============ MCP Protocol ============
 
-// Tools schema
 const tools = [
   {
     name: "describe_by_path",
@@ -376,7 +677,7 @@ const tools = [
   },
   {
     name: "read_digital_twin",
-    description: "Read data from the digital twin by path. Use dot notation for nested paths.",
+    description: "Read data from the authenticated user's digital twin by path. Use dot notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
@@ -384,17 +685,13 @@ const tools = [
           type: "string",
           description: "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
         },
-        user_id: {
-          type: "string",
-          description: "User ID (optional, defaults to 'default')",
-        },
       },
       required: ["path"],
     },
   },
   {
     name: "write_digital_twin",
-    description: "Write data to the digital twin by path. Use dot notation for nested paths.",
+    description: "Write data to the authenticated user's digital twin by path. Use dot notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
@@ -405,32 +702,26 @@ const tools = [
         data: {
           description: "Data to write (any JSON value)",
         },
-        user_id: {
-          type: "string",
-          description: "User ID (optional, defaults to 'default')",
-        },
       },
       required: ["path", "data"],
     },
   },
 ];
 
-// Handle tool calls
-async function callTool(env, name, args) {
+async function callTool(env, name, args, userId) {
   switch (name) {
     case "describe_by_path":
       return describeByPath(args.path);
     case "read_digital_twin":
-      return await readDigitalTwin(env, args.path, args.user_id);
+      return await readDigitalTwin(env, args.path, userId);
     case "write_digital_twin":
-      return await writeDigitalTwin(env, args.path, args.data, args.user_id);
+      return await writeDigitalTwin(env, args.path, args.data, userId);
     default:
       return { error: `Unknown tool: ${name}` };
   }
 }
 
-// Handle MCP JSON-RPC
-async function handleMCP(env, message) {
+async function handleMCP(env, message, userId) {
   const { jsonrpc, id, method, params } = message;
 
   if (jsonrpc !== "2.0") {
@@ -454,7 +745,7 @@ async function handleMCP(env, message) {
 
     case "tools/call": {
       const { name, arguments: args } = params;
-      const result = await callTool(env, name, args || {});
+      const result = await callTool(env, name, args || {}, userId);
 
       if (result?.error && typeof result.error === "string") {
         return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
@@ -476,12 +767,21 @@ async function handleMCP(env, message) {
   }
 }
 
+// ============ Helpers ============
+
+function jsonResponse(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+  });
+}
+
 // ============ HTTP Handler ============
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const resourceUrl = env.RESOURCE_URL || `${url.protocol}//${url.host}`;
+    const baseUrl = getBaseUrl(env, request);
 
     const cors = {
       "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",
@@ -495,64 +795,84 @@ export default {
       return new Response(null, { headers: cors });
     }
 
+    // Helper to add CORS headers to any response
+    function withCors(response) {
+      const newHeaders = new Headers(response.headers);
+      for (const [k, v] of Object.entries(cors)) {
+        newHeaders.set(k, v);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    }
+
+    // ======= OAuth2 Authorization Server Metadata (RFC 8414) =======
+    if (url.pathname === "/.well-known/oauth-authorization-server") {
+      return withCors(jsonResponse(handleASMetadata(baseUrl)));
+    }
+
     // ======= OAuth2 Protected Resource Metadata (RFC 9728) =======
     if (url.pathname === "/.well-known/oauth-protected-resource") {
-      if (!env.ORY_PROJECT_URL) {
-        return new Response(JSON.stringify({ error: "OAuth not configured" }), {
-          status: 404,
-          headers: { ...cors, "Content-Type": "application/json" },
-        });
-      }
-
-      const metadata = {
-        resource: resourceUrl,
-        authorization_servers: [env.ORY_PROJECT_URL],
+      return withCors(jsonResponse({
+        resource: baseUrl,
+        authorization_servers: [baseUrl],
         scopes_supported: ["openid", "offline_access"],
         bearer_methods_supported: ["header"],
-        resource_documentation: `${resourceUrl}/docs`,
-      };
-
-      return new Response(JSON.stringify(metadata, null, 2), {
-        headers: { ...cors, "Content-Type": "application/json" },
-      });
+        resource_documentation: `${baseUrl}/docs`,
+      }));
     }
 
-    // Health check endpoint (no auth required)
+    // ======= Dynamic Client Registration (RFC 7591) =======
+    if (url.pathname === "/register" && request.method === "POST") {
+      return withCors(await handleRegister(request, env));
+    }
+
+    // ======= Authorization Endpoint =======
+    if (url.pathname === "/authorize" && request.method === "GET") {
+      return await handleAuthorize(request, env, baseUrl);
+    }
+
+    // ======= Ory Callback =======
+    if (url.pathname === "/callback" && request.method === "GET") {
+      return await handleCallback(request, env, baseUrl);
+    }
+
+    // ======= Token Endpoint =======
+    if (url.pathname === "/token" && request.method === "POST") {
+      return withCors(await handleToken(request, env));
+    }
+
+    // ======= Health check =======
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({
+      return withCors(jsonResponse({
         status: "ok",
-        auth: env.ORY_PROJECT_URL ? "oauth2" : "none",
-      }), {
-        headers: { ...cors, "Content-Type": "application/json" },
-      });
+        auth: "oauth2-as",
+      }));
     }
 
-    // MCP endpoint
+    // ======= MCP endpoint =======
     if (url.pathname === "/mcp" || url.pathname === "/") {
-      // GET request - show server info (no auth for discovery)
       if (request.method !== "POST") {
-        const info = {
+        return withCors(jsonResponse({
           name: "digital-twin-mcp",
           version: "2.0.0",
-          description: "Digital Twin MCP Server with OAuth2 authentication",
-          auth: env.ORY_PROJECT_URL ? {
+          description: "Digital Twin MCP Server with OAuth2 Authorization Server",
+          auth: {
             type: "oauth2",
-            metadata_url: `${resourceUrl}/.well-known/oauth-protected-resource`,
-          } : { type: "none" },
+            metadata_url: `${baseUrl}/.well-known/oauth-authorization-server`,
+          },
           storage: env?.DIGITAL_TWIN_DATA ? "persistent" : "ephemeral",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
-        };
-
-        return new Response(JSON.stringify(info, null, 2), {
-          headers: { ...cors, "Content-Type": "application/json" },
-        });
+        }));
       }
 
-      // POST request - requires authentication
+      // POST - requires authentication
       const authResult = await authenticate(request, env);
 
       if (!authResult.valid) {
-        return new Response(JSON.stringify({
+        return withCors(new Response(JSON.stringify({
           jsonrpc: "2.0",
           id: null,
           error: {
@@ -560,30 +880,33 @@ export default {
             message: "Unauthorized",
             data: { reason: authResult.error },
           },
-        }), {
+        }, null, 2), {
           status: 401,
           headers: {
-            ...cors,
             "Content-Type": "application/json",
-            "WWW-Authenticate": buildWwwAuthenticate(env, authResult.error),
+            "WWW-Authenticate": buildWwwAuthenticate(baseUrl, authResult.error),
           },
-        });
+        }));
       }
 
       const message = await request.json();
-      const response = await handleMCP(env, message);
+      const response = await handleMCP(env, message, authResult.userId);
 
-      return new Response(JSON.stringify(response, null, 2), {
-        headers: { ...cors, "Content-Type": "application/json" },
-      });
+      return withCors(jsonResponse(response));
     }
 
-    return new Response(JSON.stringify({
+    return withCors(jsonResponse({
       error: "Not found",
-      endpoints: ["/mcp", "/.well-known/oauth-protected-resource", "/health"],
-    }), {
-      status: 404,
-      headers: { ...cors, "Content-Type": "application/json" },
-    });
+      endpoints: [
+        "/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-protected-resource",
+        "/register",
+        "/authorize",
+        "/callback",
+        "/token",
+        "/health",
+      ],
+    }, 404));
   },
 };
