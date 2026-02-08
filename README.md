@@ -353,9 +353,9 @@ digital-twin-mcp/
 5. Regenerate data: `node scripts/build-metamodel.js`
 6. Run tests: `npm test`
 
-## Roadmap
+## Strategic Map
 
-See [ROADMAP.md](./ROADMAP.md) for development plans:
+See [MAPSTRATEGIC.md](./MAPSTRATEGIC.md) for strategic vision (phases, versions):
 
 - **v1.0** ✅ Declarative indicators (IND.1.*)
 - **v2.0** 🟡 Collected indicators (IND.2.*)
@@ -364,7 +364,8 @@ See [ROADMAP.md](./ROADMAP.md) for development plans:
 
 ## Related Documentation
 
-- [ROADMAP.md](./ROADMAP.md) - Development roadmap
+- [MAPSTRATEGIC.md](./MAPSTRATEGIC.md) - Strategic vision (phases, versions)
+- [WORKPLAN.md](./WORKPLAN.md) - Operational plan (work products, deadlines)
 - [QUICKSTART.md](./QUICKSTART.md) - Quick deployment guide
 - [DEPLOYMENT.md](./DEPLOYMENT.md) - Full deployment guide
 - [Model Context Protocol](https://modelcontextprotocol.io/)

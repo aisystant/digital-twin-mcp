@@ -175,7 +175,7 @@ https://dash.cloudflare.com → Workers & Pages → digital-twin-mcp
 
 - **Full Documentation:** [README.md](./README.md)
 - **Deployment Guide:** [DEPLOYMENT.md](./DEPLOYMENT.md)
-- **Roadmap:** [ROADMAP.md](./ROADMAP.md)
+- **Strategic Map:** [MAPSTRATEGIC.md](./MAPSTRATEGIC.md)
 
 ---
 
