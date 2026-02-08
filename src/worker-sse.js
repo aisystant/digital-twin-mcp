@@ -185,6 +185,8 @@ async function handleAuthorize(request, env, baseUrl) {
     created_at: Date.now(),
   }, TTL.STATE);
 
+  console.log("[authorize] client_id:", clientId, "redirect_uri:", redirectUri, "baseUrl:", baseUrl);
+
   // Redirect to Ory authorization endpoint
   const oryAuthUrl = new URL(`${env.ORY_PROJECT_URL}/oauth2/auth`);
   oryAuthUrl.searchParams.set("client_id", env.ORY_CLIENT_ID);
@@ -209,6 +211,8 @@ async function handleCallback(request, env, baseUrl) {
   const internalState = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
+  console.log("[callback] received:", { hasCode: !!oryCode, hasState: !!internalState, error, baseUrl });
+
   if (error) {
     const errorDesc = url.searchParams.get("error_description") || "Authorization denied";
     return new Response(`Authorization failed: ${errorDesc}`, { status: 400 });
@@ -221,13 +225,19 @@ async function handleCallback(request, env, baseUrl) {
   // Retrieve pending auth state
   const pendingState = await kvGet(env, `oauth:state:${internalState}`);
   if (!pendingState) {
+    console.error("[callback] state not found in KV:", internalState);
     return new Response("Invalid or expired state", { status: 400 });
   }
+
+  console.log("[callback] pending state found, client_id:", pendingState.client_id, "redirect_uri:", pendingState.redirect_uri);
 
   // Clean up state
   await kvDelete(env, `oauth:state:${internalState}`);
 
   // Exchange Ory code for Ory token
+  const oryCallbackUri = `${baseUrl}/callback`;
+  console.log("[callback] exchanging Ory code, redirect_uri:", oryCallbackUri, "ORY_CLIENT_ID:", env.ORY_CLIENT_ID, "hasSecret:", !!env.ORY_CLIENT_SECRET);
+
   let oryTokenData;
   try {
     const tokenResponse = await fetch(`${env.ORY_PROJECT_URL}/oauth2/token`, {
@@ -236,7 +246,7 @@ async function handleCallback(request, env, baseUrl) {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code: oryCode,
-        redirect_uri: `${baseUrl}/callback`,
+        redirect_uri: oryCallbackUri,
         client_id: env.ORY_CLIENT_ID,
         client_secret: env.ORY_CLIENT_SECRET,
       }).toString(),
@@ -244,13 +254,14 @@ async function handleCallback(request, env, baseUrl) {
 
     if (!tokenResponse.ok) {
       const errBody = await tokenResponse.text();
-      console.error("Ory token exchange failed:", tokenResponse.status, errBody);
-      return new Response("Failed to exchange authorization code", { status: 502 });
+      console.error("[callback] Ory token exchange failed:", tokenResponse.status, errBody);
+      return new Response(`Failed to exchange authorization code: ${errBody}`, { status: 502 });
     }
 
     oryTokenData = await tokenResponse.json();
+    console.log("[callback] Ory token received, has id_token:", !!oryTokenData.id_token, "has refresh:", !!oryTokenData.refresh_token);
   } catch (err) {
-    console.error("Ory token exchange error:", err);
+    console.error("[callback] Ory token exchange error:", err);
     return new Response("Failed to exchange authorization code", { status: 502 });
   }
 
@@ -283,8 +294,11 @@ async function handleCallback(request, env, baseUrl) {
   }
 
   if (!userId) {
+    console.error("[callback] failed to extract userId from Ory tokens");
     return new Response("Failed to identify user", { status: 502 });
   }
+
+  console.log("[callback] userId extracted:", userId);
 
   // Generate MCP authorization code
   const mcpCode = generateRandomString(32);
@@ -305,6 +319,8 @@ async function handleCallback(request, env, baseUrl) {
     redirectUrl.searchParams.set("state", pendingState.client_state);
   }
 
+  console.log("[callback] redirecting to client:", redirectUrl.toString().substring(0, 100));
+
   return new Response(null, {
     status: 302,
     headers: { Location: redirectUrl.toString() },
@@ -319,12 +335,15 @@ async function handleToken(request, env) {
   let body;
   try {
     const text = await request.text();
+    console.log("[token] raw body:", text.substring(0, 200));
     body = Object.fromEntries(new URLSearchParams(text));
-  } catch {
+  } catch (err) {
+    console.error("[token] body parse error:", err);
     return jsonResponse({ error: "invalid_request", error_description: "Invalid request body" }, 400);
   }
 
   const grantType = body.grant_type;
+  console.log("[token] grant_type:", grantType, "client_id:", body.client_id, "has code:", !!body.code, "has code_verifier:", !!body.code_verifier);
 
   if (grantType === "authorization_code") {
     return handleAuthorizationCodeGrant(body, env);
@@ -339,6 +358,7 @@ async function handleAuthorizationCodeGrant(body, env) {
   const { code, code_verifier, client_id, redirect_uri } = body;
 
   if (!code || !code_verifier || !client_id) {
+    console.error("[token] missing params:", { hasCode: !!code, hasVerifier: !!code_verifier, hasClientId: !!client_id });
     return jsonResponse({
       error: "invalid_request",
       error_description: "code, code_verifier, and client_id are required",
@@ -348,27 +368,35 @@ async function handleAuthorizationCodeGrant(body, env) {
   // Retrieve and validate auth code
   const codeData = await kvGet(env, `oauth:code:${code}`);
   if (!codeData) {
+    console.error("[token] code not found in KV:", code.substring(0, 8) + "...");
     return jsonResponse({ error: "invalid_grant", error_description: "Invalid or expired code" }, 400);
   }
+
+  console.log("[token] code found, client_id match:", codeData.client_id === client_id, "user_id:", codeData.user_id);
 
   // Delete code (single use)
   await kvDelete(env, `oauth:code:${code}`);
 
   // Validate client_id
   if (codeData.client_id !== client_id) {
+    console.error("[token] client_id mismatch:", codeData.client_id, "vs", client_id);
     return jsonResponse({ error: "invalid_grant", error_description: "client_id mismatch" }, 400);
   }
 
   // Validate redirect_uri if provided
   if (redirect_uri && codeData.redirect_uri !== redirect_uri) {
+    console.error("[token] redirect_uri mismatch:", codeData.redirect_uri, "vs", redirect_uri);
     return jsonResponse({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, 400);
   }
 
   // Validate PKCE
   const computedChallenge = await sha256(code_verifier);
   if (computedChallenge !== codeData.code_challenge) {
+    console.error("[token] PKCE failed. computed:", computedChallenge, "expected:", codeData.code_challenge);
     return jsonResponse({ error: "invalid_grant", error_description: "PKCE verification failed" }, 400);
   }
+
+  console.log("[token] PKCE verified, issuing tokens for user:", codeData.user_id);
 
   // Issue MCP tokens
   const accessToken = generateRandomString(32);
