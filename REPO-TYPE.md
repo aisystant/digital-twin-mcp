@@ -10,8 +10,8 @@ MCP-сервис цифрового двойника. Вычислительны
 
 ## Upstream dependencies
 
-- [TserenTserenov/spf-digital-platform-pack](https://github.com/TserenTserenov/spf-digital-platform-pack) — source-of-truth области ИТ-платформы
-- [aisystant/spf-personal-pack](https://github.com/aisystant/spf-personal-pack) — контракт индикаторов созидателя
+- [TserenTserenov/PACK-digital-platform](https://github.com/TserenTserenov/PACK-digital-platform) — source-of-truth области ИТ-платформы
+- [aisystant/PACK-personal](https://github.com/aisystant/PACK-personal) — контракт индикаторов созидателя
 
 ## Downstream outputs
 

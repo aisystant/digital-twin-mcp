@@ -18,7 +18,7 @@ digital-twin-mcp — это **Downstream-артефакт (уровень 4)** �
 │ Фреймворк производства Pack'ов
 ▼
 Уровень 3: Pack (Доменный source-of-truth)
-│ github.com/aisystant/spf-personal
+│ github.com/aisystant/PACK-personal
 ▼
 Уровень 4: Downstream  ← digital-twin-mcp здесь
   Производные артефакты (MCP-серверы, боты, курсы)
@@ -28,28 +28,28 @@ digital-twin-mcp — это **Downstream-артефакт (уровень 4)** �
 |---------|------|-------------|
 | 1. FPF | Мета-онтология | [ailev/FPF](https://github.com/ailev/FPF) |
 | 2. SPF | Фреймворк производства | [TserenTserenov/SPF](https://github.com/TserenTserenov/SPF) |
-| 3. Pack | Source-of-truth области | [aisystant/spf-personal-pack](https://github.com/aisystant/spf-personal-pack) |
+| 3. Pack | Source-of-truth области | [aisystant/PACK-personal](https://github.com/aisystant/PACK-personal) |
 | **4. Downstream** | **Производные артефакты** | **Этот репозиторий** |
 
 ### Связанные репозитории
 
 | Репозиторий | Связь |
 |-------------|-------|
-| [ecosystem-development](https://github.com/aisystant/ecosystem-development) | Спецификации модели данных ЦД, архитектура MCP-сервера |
-| [spf-personal-pack](https://github.com/aisystant/spf-personal-pack) | Source-of-truth области «Созидатель» |
-| [s2r](https://github.com/TserenTserenov/s2r) | Методология организации (используется в ecosystem-development) |
+| [DS-ecosystem-development](https://github.com/aisystant/DS-ecosystem-development) | Спецификации модели данных ЦД, архитектура MCP-сервера |
+| [PACK-personal](https://github.com/aisystant/PACK-personal) | Source-of-truth области «Созидатель» |
+| [FMT-s2r](https://github.com/TserenTserenov/FMT-s2r) | Методология организации (используется в DS-ecosystem-development) |
 
 ### Принцип
 
 Как Downstream-артефакт, digital-twin-mcp:
-- **Реализует** спецификации из ecosystem-development
+- **Реализует** спецификации из DS-ecosystem-development
 - **Использует** терминологию из SPF/Pack
 - **НЕ является** source-of-truth (при противоречии — приоритет у Pack)
 
 ## Спецификации
 
 Модель данных цифрового двойника и архитектура MCP-сервера описаны в:
-- [ecosystem-development/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture/](https://github.com/aisystant/ecosystem-development/tree/main/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture)
+- [DS-ecosystem-development/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture/](https://github.com/aisystant/DS-ecosystem-development/tree/main/B.Aisystant-Ecosystem/B2.Aisystant-Ecosystem/B2.2.Architecture)
 
 Ключевые документы:
 - **Модель данных цифрового двойника 3.2.md** — 4 типа показателей (IND.1-4)

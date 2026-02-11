@@ -1,7 +1,7 @@
 # Онтология: Digital Twin MCP
 
 > **Тип:** Downstream-instrument
-> **Upstream:** spf-digital-platform-pack, spf-personal-pack
+> **Upstream:** PACK-digital-platform, PACK-personal
 > **Базовая онтология:** [SPF/ontology.md](../SPF/ontology.md) (SPF.SPEC.002)
 >
 > Downstream ссылается на понятия Pack'ов и SPF. Новых онтологических понятий не вводит (SPF.SPEC.002 § 4.3).
@@ -12,8 +12,8 @@
 
 | Уровень | Источник | Что используется |
 |---------|----------|------------------|
-| Pack | [spf-digital-platform-pack](../spf-digital-platform-pack/) | Архитектура цифрового двойника, MCP-сервисы |
-| Pack | [spf-personal-pack](../spf-personal-pack/) | Индикаторы, характеристики созидателя |
+| Pack | [PACK-digital-platform](../PACK-digital-platform/) | Архитектура цифрового двойника, MCP-сервисы |
+| Pack | [PACK-personal](../PACK-personal/) | Индикаторы, характеристики созидателя |
 | SPF | [SPF/ontology.md](../SPF/ontology.md) | Базовая онтология (U.*) |
 | FPF | Через SPF | Мета-онтология |
 
@@ -21,7 +21,7 @@
 
 ## 2. Используемые понятия из Pack
 
-### Из spf-digital-platform-pack
+### Из PACK-digital-platform
 
 | Понятие | FPF-понятие | Как используется |
 |---------|-------------|------------------|
@@ -30,7 +30,7 @@
 | Индикатор | U.Characteristic | Наблюдаемые данные о созидателе |
 | ИИ-система | U.System + U.Capability | Потребитель данных двойника |
 
-### Из spf-personal-pack
+### Из PACK-personal
 
 | Понятие | FPF-понятие | Как используется |
 |---------|-------------|------------------|
@@ -53,6 +53,6 @@
 
 ## 4. Связанные документы
 
-- [spf-digital-platform-pack/ontology.md](../spf-digital-platform-pack/ontology.md) — онтология платформы
-- [spf-personal-pack/ontology.md](../spf-personal-pack/ontology.md) — онтология созидателя
+- [PACK-digital-platform/ontology.md](../PACK-digital-platform/ontology.md) — онтология платформы
+- [PACK-personal/ontology.md](../PACK-personal/ontology.md) — онтология созидателя
 - [SPF/ontology.md](../SPF/ontology.md) — базовая онтология (SPF.SPEC.002)
