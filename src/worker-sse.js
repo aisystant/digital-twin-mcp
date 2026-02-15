@@ -514,28 +514,6 @@ function buildWwwAuthenticate(baseUrl, error = null) {
 // Twin Data Storage
 // ============================================
 
-const DEFAULT_TWIN_DATA = {
-  indicators: {
-    agency: {
-      role_set: [],
-      goals: [],
-      daily_task_time: null,
-    },
-    data: {
-      time_invested: { total_hours: 0, sessions_count: 0 },
-      progress: {},
-    },
-    info: {
-      profile: { name: "Learner", level: "beginner" },
-      preferences: { style: "hands-on", pace: "moderate" },
-    },
-    stage: {
-      current: "STG.Student.Practicing",
-      history: [],
-    },
-  },
-};
-
 // Auto-migration: creates table on first use per isolate
 let _migrated = false;
 async function ensureTable(sql) {
@@ -552,11 +530,11 @@ async function ensureTable(sql) {
 }
 
 async function getTwinData(env, userId) {
-  if (!env.DATABASE_URL) return { ...DEFAULT_TWIN_DATA };
+  if (!env.DATABASE_URL) return {};
   const sql = neon(env.DATABASE_URL);
   await ensureTable(sql);
   const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${userId}`;
-  return rows.length ? rows[0].data : { ...DEFAULT_TWIN_DATA };
+  return rows.length ? rows[0].data : {};
 }
 
 async function saveTwinData(env, userId, data) {
@@ -626,17 +604,19 @@ function parseMdFile(content, filename) {
 // ============ Tools ============
 
 function describeByPath(pathArg) {
+  // Root: list categories + shared documents
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     const results = [];
 
-    for (const [name, _content] of Object.entries(METAMODEL.rootFiles)) {
-      results.push(`${name}:document:Root metamodel document`);
+    for (const [name] of Object.entries(METAMODEL.rootFiles)) {
+      results.push(`${name}:document:Shared metamodel document`);
     }
 
-    for (const group of METAMODEL.groups) {
-      const firstLine = group.description.split("\n").find((l) => l.startsWith("# "));
-      const desc = firstLine ? firstLine.replace("# ", "").trim() : group.name;
-      results.push(`${group.name}:group:${desc}`);
+    for (const cat of METAMODEL.categories) {
+      const firstLine = cat.description.split("\n").find((l) => l.startsWith("# "));
+      const desc = firstLine ? firstLine.replace("# ", "").trim() : cat.name;
+      const count = cat.subgroups.reduce((sum, s) => sum + Object.keys(s.indicators).length, 0);
+      results.push(`${cat.name}:category:${desc} (${count} indicators)`);
     }
 
     return results.join("\n");
@@ -645,25 +625,51 @@ function describeByPath(pathArg) {
   const normalized = normalizePath(pathArg);
   const parts = normalized.split(".");
 
-  if (parts.length === 1 && METAMODEL.rootFiles[parts[0]]) {
-    return METAMODEL.rootFiles[parts[0]];
-  }
+  // 1 segment: rootFile or category
+  if (parts.length === 1) {
+    if (METAMODEL.rootFiles[parts[0]]) {
+      return METAMODEL.rootFiles[parts[0]];
+    }
 
-  const group = getGroup(parts[0]);
-  if (!group) {
+    const category = METAMODEL.categories.find(c => c.name === parts[0]);
+    if (category) {
+      const results = [];
+      for (const sub of category.subgroups) {
+        const count = Object.keys(sub.indicators).length;
+        const suffix = count > 0 ? ` (${count} indicators)` : "";
+        results.push(`${sub.name}:subgroup${suffix}`);
+      }
+      return category.description + "\n---\n" + results.join("\n");
+    }
+
     return `Error: Path not found: ${pathArg}`;
   }
 
-  if (parts.length === 1) {
+  // 2 segments: category/subgroup → list indicators
+  if (parts.length === 2) {
+    const groupPath = `${parts[0]}/${parts[1]}`;
+    const group = getGroup(groupPath);
+    if (!group) {
+      return `Error: Subgroup not found: ${pathArg}`;
+    }
+
     const results = [];
     for (const [name, content] of Object.entries(group.indicators)) {
       const { type, format, description } = parseMdFile(content, name);
       results.push(`${name}:${type}/${format}:${description}`);
     }
+
+    if (results.length === 0) {
+      return `Subgroup '${pathArg}' exists but has no indicators yet.`;
+    }
+
     return results.join("\n");
   }
 
-  const indicatorContent = getIndicator(parts[0], parts[1]);
+  // 3 segments: category/subgroup/indicator → return indicator content
+  const groupPath = `${parts[0]}/${parts[1]}`;
+  const indicatorName = parts[2];
+  const indicatorContent = getIndicator(groupPath, indicatorName);
   if (!indicatorContent) {
     return `Error: Indicator not found: ${pathArg}`;
   }
@@ -684,6 +690,16 @@ async function readDigitalTwin(env, pathArg, userId) {
 }
 
 async function writeDigitalTwin(env, pathArg, value, userId) {
+  // Access control: check category write permissions
+  const parts = normalizePath(pathArg).split(".");
+  const category = parts[0];
+  const access = METAMODEL.accessControl?.[category];
+  if (access && !access.user?.includes("w")) {
+    return {
+      error: `Write access denied. Category '${category}' is read-only for users.`,
+    };
+  }
+
   const twinData = await getTwinData(env, userId);
   setByPath(twinData, pathArg, value);
   const saved = await saveTwinData(env, userId, twinData);
@@ -702,27 +718,27 @@ const tools = [
   {
     name: "describe_by_path",
     description:
-      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
+      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all categories.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Path in metamodel. Examples: '/' (root), '01_preferences', '02_agency', '01_preferences/09_Цели обучения'",
+            "Path in metamodel. Examples: '/' (root), '1_declarative', '1_declarative/1_2_goals', '1_declarative/1_2_goals/09_Цели обучения'",
         },
       },
     },
   },
   {
     name: "read_digital_twin",
-    description: "Read data from the authenticated user's digital twin by path. Use dot notation for nested paths.",
+    description: "Read data from the authenticated user's digital twin by path. Use dot or slash notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
+          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_3_selfeval')",
         },
       },
       required: ["path"],
@@ -730,13 +746,13 @@ const tools = [
   },
   {
     name: "write_digital_twin",
-    description: "Write data to the authenticated user's digital twin by path. Use dot notation for nested paths.",
+    description: "Write data to the authenticated user's digital twin by path. Only '1_declarative' category is writable by users.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to data (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
+          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_4_context/01_Текущие проблемы')",
         },
         data: {
           description: "Data to write (any JSON value)",
