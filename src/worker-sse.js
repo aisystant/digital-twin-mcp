@@ -574,6 +574,30 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
+/**
+ * Recursively parse string values that contain JSON objects/arrays.
+ * Fixes data where structured values were stored as serialized strings.
+ */
+function deepParseJSONStrings(obj) {
+  if (typeof obj !== "object" || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(deepParseJSONStrings);
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+      try {
+        result[key] = deepParseJSONStrings(JSON.parse(value));
+      } catch {
+        result[key] = value;
+      }
+    } else if (typeof value === "object" && value !== null) {
+      result[key] = deepParseJSONStrings(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 function parseMdFile(content, filename) {
   const lines = content.split("\n");
   const result = {
@@ -681,11 +705,19 @@ async function readDigitalTwin(env, pathArg, userId) {
   const twinData = await getTwinData(env, userId);
 
   if (!pathArg || pathArg === "/" || pathArg === ".") {
-    return twinData;
+    return deepParseJSONStrings(twinData);
   }
 
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
+
+  // Parse string values that are actually JSON objects/arrays
+  if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+    try { return JSON.parse(value); } catch {}
+  }
+  if (typeof value === "object" && value !== null) {
+    return deepParseJSONStrings(value);
+  }
   return value;
 }
 
@@ -700,13 +732,19 @@ async function writeDigitalTwin(env, pathArg, value, userId) {
     };
   }
 
+  // Parse JSON strings to prevent storing stringified objects as strings
+  let parsedValue = value;
+  if (typeof value === "string") {
+    try { parsedValue = JSON.parse(value); } catch {}
+  }
+
   const twinData = await getTwinData(env, userId);
-  setByPath(twinData, pathArg, value);
+  setByPath(twinData, pathArg, parsedValue);
   const saved = await saveTwinData(env, userId, twinData);
   return {
     success: true,
     path: pathArg,
-    value,
+    value: parsedValue,
     user: userId || "anonymous",
     persisted: saved,
   };
