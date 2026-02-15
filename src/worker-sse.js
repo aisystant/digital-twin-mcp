@@ -7,6 +7,7 @@
  *   - PKCE support (RFC 7636)
  */
 
+import { neon } from "@neondatabase/serverless";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 
 // ============================================
@@ -481,8 +482,8 @@ async function handleRefreshTokenGrant(body, env) {
 // ============================================
 
 async function authenticate(request, env) {
-  // If no KV configured, allow all (dev mode)
-  if (!env?.DIGITAL_TWIN_DATA) {
+  // If no DATABASE_URL configured, allow all (dev mode)
+  if (!env?.DATABASE_URL) {
     return { valid: true, userId: null };
   }
 
@@ -513,51 +514,39 @@ function buildWwwAuthenticate(baseUrl, error = null) {
 // Twin Data Storage
 // ============================================
 
-const DEFAULT_TWIN_DATA = {
-  indicators: {
-    agency: {
-      role_set: [],
-      goals: [],
-      daily_task_time: null,
-    },
-    data: {
-      time_invested: { total_hours: 0, sessions_count: 0 },
-      progress: {},
-    },
-    info: {
-      profile: { name: "Learner", level: "beginner" },
-      preferences: { style: "hands-on", pace: "moderate" },
-    },
-    stage: {
-      current: "STG.Student.Practicing",
-      history: [],
-    },
-  },
-};
-
-const TWIN_KEY_PREFIX = "twin:";
-const DEFAULT_USER = "default";
-
-function getTwinKey(userId) {
-  const safeUserId = (userId || DEFAULT_USER).replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${TWIN_KEY_PREFIX}${safeUserId}`;
+// Auto-migration: creates table on first use per isolate
+let _migrated = false;
+async function ensureTable(sql) {
+  if (_migrated) return;
+  await sql`
+    CREATE TABLE IF NOT EXISTS digital_twins (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  _migrated = true;
 }
 
 async function getTwinData(env, userId) {
-  if (!env?.DIGITAL_TWIN_DATA) {
-    return { ...DEFAULT_TWIN_DATA };
-  }
-  const key = getTwinKey(userId);
-  const data = await env.DIGITAL_TWIN_DATA.get(key, "json");
-  return data || { ...DEFAULT_TWIN_DATA };
+  if (!env.DATABASE_URL) return {};
+  const sql = neon(env.DATABASE_URL);
+  await ensureTable(sql);
+  const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${userId}`;
+  return rows.length ? rows[0].data : {};
 }
 
 async function saveTwinData(env, userId, data) {
-  if (!env?.DIGITAL_TWIN_DATA) {
-    return false;
-  }
-  const key = getTwinKey(userId);
-  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(data));
+  if (!env.DATABASE_URL) return false;
+  const sql = neon(env.DATABASE_URL);
+  await ensureTable(sql);
+  await sql`
+    INSERT INTO digital_twins (user_id, data, updated_at)
+    VALUES (${userId}, ${JSON.stringify(data)}, NOW())
+    ON CONFLICT (user_id) DO UPDATE
+    SET data = EXCLUDED.data, updated_at = NOW()
+  `;
   return true;
 }
 
@@ -583,6 +572,30 @@ function setByPath(obj, pathStr, value) {
     current = current[parts[i]];
   }
   current[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Recursively parse string values that contain JSON objects/arrays.
+ * Fixes data where structured values were stored as serialized strings.
+ */
+function deepParseJSONStrings(obj) {
+  if (typeof obj !== "object" || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(deepParseJSONStrings);
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+      try {
+        result[key] = deepParseJSONStrings(JSON.parse(value));
+      } catch {
+        result[key] = value;
+      }
+    } else if (typeof value === "object" && value !== null) {
+      result[key] = deepParseJSONStrings(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function parseMdFile(content, filename) {
@@ -615,17 +628,19 @@ function parseMdFile(content, filename) {
 // ============ Tools ============
 
 function describeByPath(pathArg) {
+  // Root: list categories + shared documents
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     const results = [];
 
-    for (const [name, _content] of Object.entries(METAMODEL.rootFiles)) {
-      results.push(`${name}:document:Root metamodel document`);
+    for (const [name] of Object.entries(METAMODEL.rootFiles)) {
+      results.push(`${name}:document:Shared metamodel document`);
     }
 
     for (const cat of METAMODEL.categories) {
       const firstLine = cat.description.split("\n").find((l) => l.startsWith("# "));
       const desc = firstLine ? firstLine.replace("# ", "").trim() : cat.name;
-      results.push(`${cat.name}:category:${desc}`);
+      const count = cat.subgroups.reduce((sum, s) => sum + Object.keys(s.indicators).length, 0);
+      results.push(`${cat.name}:category:${desc} (${count} indicators)`);
     }
 
     return results.join("\n");
@@ -634,74 +649,103 @@ function describeByPath(pathArg) {
   const normalized = normalizePath(pathArg);
   const parts = normalized.split(".");
 
-  // 1 part: root file or category (list subgroups)
+  // 1 segment: rootFile or category
   if (parts.length === 1) {
     if (METAMODEL.rootFiles[parts[0]]) {
       return METAMODEL.rootFiles[parts[0]];
     }
-    // Category → list subgroups
-    const cat = METAMODEL.categories.find(c => c.name === parts[0]);
-    if (cat) {
-      const results = cat.subgroups.map(sg => {
-        const count = Object.keys(sg.indicators).length;
-        return `${sg.name}:subgroup (${count} indicators)`;
-      });
-      // Also include category description
-      if (cat.description) {
-        return cat.description + "\n---\n" + results.join("\n");
+
+    const category = METAMODEL.categories.find(c => c.name === parts[0]);
+    if (category) {
+      const results = [];
+      for (const sub of category.subgroups) {
+        const count = Object.keys(sub.indicators).length;
+        const suffix = count > 0 ? ` (${count} indicators)` : "";
+        results.push(`${sub.name}:subgroup${suffix}`);
       }
-      return results.join("\n");
+      return category.description + "\n---\n" + results.join("\n");
     }
+
     return `Error: Path not found: ${pathArg}`;
   }
 
-  // 2 parts: category/subgroup → list indicators
+  // 2 segments: category/subgroup → list indicators
   if (parts.length === 2) {
     const groupPath = `${parts[0]}/${parts[1]}`;
     const group = getGroup(groupPath);
-    if (group) {
-      const results = [];
-      for (const [name, content] of Object.entries(group.indicators)) {
-        const { type, format, description } = parseMdFile(content, name);
-        results.push(`${name}:${type}/${format}:${description}`);
-      }
-      return results.join("\n");
+    if (!group) {
+      return `Error: Subgroup not found: ${pathArg}`;
     }
-    return `Error: Subgroup not found: ${pathArg}`;
+
+    const results = [];
+    for (const [name, content] of Object.entries(group.indicators)) {
+      const { type, format, description } = parseMdFile(content, name);
+      results.push(`${name}:${type}/${format}:${description}`);
+    }
+
+    if (results.length === 0) {
+      return `Subgroup '${pathArg}' exists but has no indicators yet.`;
+    }
+
+    return results.join("\n");
   }
 
-  // 3 parts: category/subgroup/indicator → return content
-  if (parts.length === 3) {
-    const groupPath = `${parts[0]}/${parts[1]}`;
-    const indicatorContent = getIndicator(groupPath, parts[2]);
-    if (indicatorContent) return indicatorContent;
+  // 3 segments: category/subgroup/indicator → return indicator content
+  const groupPath = `${parts[0]}/${parts[1]}`;
+  const indicatorName = parts[2];
+  const indicatorContent = getIndicator(groupPath, indicatorName);
+  if (!indicatorContent) {
     return `Error: Indicator not found: ${pathArg}`;
   }
 
-  return `Error: Path not found: ${pathArg}`;
+  return indicatorContent;
 }
 
 async function readDigitalTwin(env, pathArg, userId) {
   const twinData = await getTwinData(env, userId);
 
   if (!pathArg || pathArg === "/" || pathArg === ".") {
-    return twinData;
+    return deepParseJSONStrings(twinData);
   }
 
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
+
+  // Parse string values that are actually JSON objects/arrays
+  if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+    try { return JSON.parse(value); } catch {}
+  }
+  if (typeof value === "object" && value !== null) {
+    return deepParseJSONStrings(value);
+  }
   return value;
 }
 
 async function writeDigitalTwin(env, pathArg, value, userId) {
+  // Access control: check category write permissions
+  const parts = normalizePath(pathArg).split(".");
+  const category = parts[0];
+  const access = METAMODEL.accessControl?.[category];
+  if (access && !access.user?.includes("w")) {
+    return {
+      error: `Write access denied. Category '${category}' is read-only for users.`,
+    };
+  }
+
+  // Parse JSON strings to prevent storing stringified objects as strings
+  let parsedValue = value;
+  if (typeof value === "string") {
+    try { parsedValue = JSON.parse(value); } catch {}
+  }
+
   const twinData = await getTwinData(env, userId);
-  setByPath(twinData, pathArg, value);
+  setByPath(twinData, pathArg, parsedValue);
   const saved = await saveTwinData(env, userId, twinData);
   return {
     success: true,
     path: pathArg,
-    value,
-    user: userId || DEFAULT_USER,
+    value: parsedValue,
+    user: userId || "anonymous",
     persisted: saved,
   };
 }
@@ -712,27 +756,27 @@ const tools = [
   {
     name: "describe_by_path",
     description:
-      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all groups.",
+      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all categories.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description:
-            "Path in metamodel. Examples: '/' (root), '01_preferences', '02_agency', '01_preferences/09_Цели обучения'",
+            "Path in metamodel. Examples: '/' (root), '1_declarative', '1_declarative/1_2_goals', '1_declarative/1_2_goals/09_Цели обучения'",
         },
       },
     },
   },
   {
     name: "read_digital_twin",
-    description: "Read data from the authenticated user's digital twin by path. Use dot notation for nested paths.",
+    description: "Read data from the authenticated user's digital twin by path. Use dot or slash notation for nested paths.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
+          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_3_selfeval')",
         },
       },
       required: ["path"],
@@ -740,13 +784,13 @@ const tools = [
   },
   {
     name: "write_digital_twin",
-    description: "Write data to the authenticated user's digital twin by path. Use dot notation for nested paths.",
+    description: "Write data to the authenticated user's digital twin by path. Only '1_declarative' category is writable by users.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to data (e.g., 'indicators.agency.role_set', 'indicators.agency.goals')",
+          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_4_context/01_Текущие проблемы')",
         },
         data: {
           description: "Data to write (any JSON value)",
@@ -912,7 +956,7 @@ export default {
             type: "oauth2",
             metadata_url: `${baseUrl}/.well-known/oauth-authorization-server`,
           },
-          storage: env?.DIGITAL_TWIN_DATA ? "persistent" : "ephemeral",
+          storage: env?.DATABASE_URL ? "persistent" : "ephemeral",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
         }));
       }

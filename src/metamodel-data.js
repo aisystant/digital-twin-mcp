@@ -1,5 +1,5 @@
 // Auto-generated from MD files - do not edit manually
-// Generated at: 2026-02-15T07:34:21.318Z
+// Generated at: 2026-02-15T07:39:34.202Z
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = {
