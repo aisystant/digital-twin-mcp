@@ -78,3 +78,9 @@ id = "640bc613fc57435bbc01da89b5800897"
 #   npx wrangler secret put ORY_CLIENT_SECRET --env ory-auth
 #   npx wrangler secret put ORY_CLIENT_SECRET --env staging
 #   npx wrangler secret put ORY_CLIENT_SECRET --env production
+#
+# Save DATABASE_URL (Neon PostgreSQL connection string) for twin data:
+#   npx wrangler secret put DATABASE_URL
+#   npx wrangler secret put DATABASE_URL --env ory-auth
+#   npx wrangler secret put DATABASE_URL --env staging
+#   npx wrangler secret put DATABASE_URL --env production

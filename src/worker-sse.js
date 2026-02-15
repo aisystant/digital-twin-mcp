@@ -7,6 +7,7 @@
  *   - PKCE support (RFC 7636)
  */
 
+import { neon } from "@neondatabase/serverless";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 
 // ============================================
@@ -481,8 +482,8 @@ async function handleRefreshTokenGrant(body, env) {
 // ============================================
 
 async function authenticate(request, env) {
-  // If no KV configured, allow all (dev mode)
-  if (!env?.DIGITAL_TWIN_DATA) {
+  // If no DATABASE_URL configured, allow all (dev mode)
+  if (!env?.DATABASE_URL) {
     return { valid: true, userId: null };
   }
 
@@ -535,29 +536,39 @@ const DEFAULT_TWIN_DATA = {
   },
 };
 
-const TWIN_KEY_PREFIX = "twin:";
-const DEFAULT_USER = "default";
-
-function getTwinKey(userId) {
-  const safeUserId = (userId || DEFAULT_USER).replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${TWIN_KEY_PREFIX}${safeUserId}`;
+// Auto-migration: creates table on first use per isolate
+let _migrated = false;
+async function ensureTable(sql) {
+  if (_migrated) return;
+  await sql`
+    CREATE TABLE IF NOT EXISTS digital_twins (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  _migrated = true;
 }
 
 async function getTwinData(env, userId) {
-  if (!env?.DIGITAL_TWIN_DATA) {
-    return { ...DEFAULT_TWIN_DATA };
-  }
-  const key = getTwinKey(userId);
-  const data = await env.DIGITAL_TWIN_DATA.get(key, "json");
-  return data || { ...DEFAULT_TWIN_DATA };
+  if (!env.DATABASE_URL) return { ...DEFAULT_TWIN_DATA };
+  const sql = neon(env.DATABASE_URL);
+  await ensureTable(sql);
+  const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${userId}`;
+  return rows.length ? rows[0].data : { ...DEFAULT_TWIN_DATA };
 }
 
 async function saveTwinData(env, userId, data) {
-  if (!env?.DIGITAL_TWIN_DATA) {
-    return false;
-  }
-  const key = getTwinKey(userId);
-  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(data));
+  if (!env.DATABASE_URL) return false;
+  const sql = neon(env.DATABASE_URL);
+  await ensureTable(sql);
+  await sql`
+    INSERT INTO digital_twins (user_id, data, updated_at)
+    VALUES (${userId}, ${JSON.stringify(data)}, NOW())
+    ON CONFLICT (user_id) DO UPDATE
+    SET data = EXCLUDED.data, updated_at = NOW()
+  `;
   return true;
 }
 
@@ -680,7 +691,7 @@ async function writeDigitalTwin(env, pathArg, value, userId) {
     success: true,
     path: pathArg,
     value,
-    user: userId || DEFAULT_USER,
+    user: userId || "anonymous",
     persisted: saved,
   };
 }
@@ -891,7 +902,7 @@ export default {
             type: "oauth2",
             metadata_url: `${baseUrl}/.well-known/oauth-authorization-server`,
           },
-          storage: env?.DIGITAL_TWIN_DATA ? "persistent" : "ephemeral",
+          storage: env?.DATABASE_URL ? "persistent" : "ephemeral",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
         }));
       }
