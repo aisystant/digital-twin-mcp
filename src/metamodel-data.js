@@ -1,5 +1,5 @@
 // Auto-generated from MD files - do not edit manually
-// Generated at: 2026-02-15T07:39:34.202Z
+// Generated at: 2026-02-15T07:43:59.414Z
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = {
@@ -13,7 +13,8 @@ export const METAMODEL = {
           "fullPath": "1_declarative/1_1_profile",
           "description": "",
           "indicators": {
-            "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+            "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n",
+            "02_Имя": "# IND.1.1.2\n\n**Name:** Имя\n**Name (EN):** Name\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
           }
         },
         {
@@ -225,7 +226,8 @@ export const METAMODEL = {
       "name": "1_declarative/1_1_profile",
       "description": "",
       "indicators": {
-        "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+        "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n",
+        "02_Имя": "# IND.1.1.2\n\n**Name:** Имя\n**Name (EN):** Name\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
       }
     },
     {
