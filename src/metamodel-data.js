@@ -1,5 +1,5 @@
 // Auto-generated from MD files - do not edit manually
-// Generated at: 2026-02-05T09:30:29.068Z
+// Generated at: 2026-02-15T07:34:21.318Z
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = {
@@ -12,7 +12,9 @@ export const METAMODEL = {
           "name": "1_1_profile",
           "fullPath": "1_declarative/1_1_profile",
           "description": "",
-          "indicators": {}
+          "indicators": {
+            "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+          }
         },
         {
           "name": "1_2_goals",
@@ -61,30 +63,6 @@ export const METAMODEL = {
       "name": "2_collected",
       "description": "# 2. Собираемые показатели (IND.2.*)\n\n**Тип:** Первичные данные\n**Источник:** Автоматически из действий пользователя\n**Права:** Пользователь — Read, Проводник — Read, Система — Write\n\n## Описание\n\nСобираемые показатели — это данные, которые система получает автоматически из действий пользователя: прохождение курсов, время сессий, платежи, активность в клубе, логи взаимодействия с ИИ.\n\n## Подгруппы\n\n- **2_1_account** — Аккаунт и сессии\n- **2_2_courses** — Прохождение курсов\n- **2_3_practice** — Задания и практики\n- **2_4_time** — Время и ритм\n- **2_5_finance** — Финансы\n- **2_8_ai_logs** — Логи ботов и ИИ\n- **2_9_community** — Сообщество (Клуб)\n\n## Версия реализации\n\n**v2.0** — Требуется интеграция с LMS, ботами и системами оплаты\n",
       "subgroups": [
-        {
-          "name": "2_1_account",
-          "fullPath": "2_collected/2_1_account",
-          "description": "",
-          "indicators": {}
-        },
-        {
-          "name": "2_2_courses",
-          "fullPath": "2_collected/2_2_courses",
-          "description": "",
-          "indicators": {}
-        },
-        {
-          "name": "2_3_practice",
-          "fullPath": "2_collected/2_3_practice",
-          "description": "",
-          "indicators": {}
-        },
-        {
-          "name": "2_4_time",
-          "fullPath": "2_collected/2_4_time",
-          "description": "",
-          "indicators": {}
-        },
         {
           "name": "2_5_finance",
           "fullPath": "2_collected/2_5_finance",
@@ -208,12 +186,6 @@ export const METAMODEL = {
           }
         },
         {
-          "name": "3_8_economics",
-          "fullPath": "3_derived/3_8_economics",
-          "description": "",
-          "indicators": {}
-        },
-        {
           "name": "3_9_ai_usage",
           "fullPath": "3_derived/3_9_ai_usage",
           "description": "",
@@ -228,18 +200,6 @@ export const METAMODEL = {
       "name": "4_generated",
       "description": "# 4. Генерируемые показатели (IND.4.*)\n\n**Тип:** Вторичные данные\n**Источник:** Генерируются по запросу, не хранятся\n**Права:** Пользователь — Read, Проводник — Read/Generate, Система — Generate\n\n## Описание\n\nГенерируемые показатели — это данные, которые создаются динамически по запросу: персональные рекомендации, сравнения с когортой, прогнозы, отчёты. Эти данные не хранятся постоянно, а генерируются каждый раз заново.\n\n## Подгруппы\n\n- **4_1_recommendations** — Персональные рекомендации\n- **4_2_comparisons** — Сравнение с когортой\n- **4_3_forecasts** — Прогнозы\n- **4_4_reports** — Динамические отчёты\n\n## Версия реализации\n\n**v4.0** — Требуется интеграция с AI/ML моделями\n",
       "subgroups": [
-        {
-          "name": "4_1_recommendations",
-          "fullPath": "4_generated/4_1_recommendations",
-          "description": "",
-          "indicators": {}
-        },
-        {
-          "name": "4_2_comparisons",
-          "fullPath": "4_generated/4_2_comparisons",
-          "description": "",
-          "indicators": {}
-        },
         {
           "name": "4_3_forecasts",
           "fullPath": "4_generated/4_3_forecasts",
@@ -264,7 +224,9 @@ export const METAMODEL = {
     {
       "name": "1_declarative/1_1_profile",
       "description": "",
-      "indicators": {}
+      "indicators": {
+        "01_Занятие": "# IND.1.1.1\n\n**Name:** Занятие\n**Name (EN):** Occupation\n**Type:** semantic\n**Format:** string\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+      }
     },
     {
       "name": "1_declarative/1_2_goals",
@@ -303,26 +265,6 @@ export const METAMODEL = {
         "15_Время запроса стратегирования": "# IND.1.4.8\n\n**Name:** Время запроса стратегирования\n**Name (EN):** Strategy request time\n**Type:** structural\n**Format:** day_time\n**Unit:** day_of_week + HH:MM\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n",
         "17_Время получения аналитики": "# IND.1.4.9\n\n**Name:** Время получения аналитики\n**Name (EN):** Weekly analytics time\n**Type:** structural\n**Format:** day_time\n**Unit:** day_of_week + HH:MM\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
       }
-    },
-    {
-      "name": "2_collected/2_1_account",
-      "description": "",
-      "indicators": {}
-    },
-    {
-      "name": "2_collected/2_2_courses",
-      "description": "",
-      "indicators": {}
-    },
-    {
-      "name": "2_collected/2_3_practice",
-      "description": "",
-      "indicators": {}
-    },
-    {
-      "name": "2_collected/2_4_time",
-      "description": "",
-      "indicators": {}
     },
     {
       "name": "2_collected/2_5_finance",
@@ -430,27 +372,12 @@ export const METAMODEL = {
       }
     },
     {
-      "name": "3_derived/3_8_economics",
-      "description": "",
-      "indicators": {}
-    },
-    {
       "name": "3_derived/3_9_ai_usage",
       "description": "",
       "indicators": {
         "02_Качество взаимодействия с ИИ": "# IND.3.9.1\n\n**Name:** Качество взаимодействия с ИИ\n**Name (EN):** AI interaction quality\n**Type:** scale\n**Format:** float\n**Unit:** 1-5\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n",
         "03_Применение рекомендаций ИИ": "# IND.3.9.2\n\n**Name:** Применение рекомендаций ИИ\n**Name (EN):** AI recommendations adoption\n**Type:** frequency\n**Format:** float\n**Unit:** percent\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n"
       }
-    },
-    {
-      "name": "4_generated/4_1_recommendations",
-      "description": "",
-      "indicators": {}
-    },
-    {
-      "name": "4_generated/4_2_comparisons",
-      "description": "",
-      "indicators": {}
     },
     {
       "name": "4_generated/4_3_forecasts",

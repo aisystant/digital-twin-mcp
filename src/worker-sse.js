@@ -622,10 +622,10 @@ function describeByPath(pathArg) {
       results.push(`${name}:document:Root metamodel document`);
     }
 
-    for (const group of METAMODEL.groups) {
-      const firstLine = group.description.split("\n").find((l) => l.startsWith("# "));
-      const desc = firstLine ? firstLine.replace("# ", "").trim() : group.name;
-      results.push(`${group.name}:group:${desc}`);
+    for (const cat of METAMODEL.categories) {
+      const firstLine = cat.description.split("\n").find((l) => l.startsWith("# "));
+      const desc = firstLine ? firstLine.replace("# ", "").trim() : cat.name;
+      results.push(`${cat.name}:category:${desc}`);
     }
 
     return results.join("\n");
@@ -634,30 +634,51 @@ function describeByPath(pathArg) {
   const normalized = normalizePath(pathArg);
   const parts = normalized.split(".");
 
-  if (parts.length === 1 && METAMODEL.rootFiles[parts[0]]) {
-    return METAMODEL.rootFiles[parts[0]];
-  }
-
-  const group = getGroup(parts[0]);
-  if (!group) {
+  // 1 part: root file or category (list subgroups)
+  if (parts.length === 1) {
+    if (METAMODEL.rootFiles[parts[0]]) {
+      return METAMODEL.rootFiles[parts[0]];
+    }
+    // Category → list subgroups
+    const cat = METAMODEL.categories.find(c => c.name === parts[0]);
+    if (cat) {
+      const results = cat.subgroups.map(sg => {
+        const count = Object.keys(sg.indicators).length;
+        return `${sg.name}:subgroup (${count} indicators)`;
+      });
+      // Also include category description
+      if (cat.description) {
+        return cat.description + "\n---\n" + results.join("\n");
+      }
+      return results.join("\n");
+    }
     return `Error: Path not found: ${pathArg}`;
   }
 
-  if (parts.length === 1) {
-    const results = [];
-    for (const [name, content] of Object.entries(group.indicators)) {
-      const { type, format, description } = parseMdFile(content, name);
-      results.push(`${name}:${type}/${format}:${description}`);
+  // 2 parts: category/subgroup → list indicators
+  if (parts.length === 2) {
+    const groupPath = `${parts[0]}/${parts[1]}`;
+    const group = getGroup(groupPath);
+    if (group) {
+      const results = [];
+      for (const [name, content] of Object.entries(group.indicators)) {
+        const { type, format, description } = parseMdFile(content, name);
+        results.push(`${name}:${type}/${format}:${description}`);
+      }
+      return results.join("\n");
     }
-    return results.join("\n");
+    return `Error: Subgroup not found: ${pathArg}`;
   }
 
-  const indicatorContent = getIndicator(parts[0], parts[1]);
-  if (!indicatorContent) {
+  // 3 parts: category/subgroup/indicator → return content
+  if (parts.length === 3) {
+    const groupPath = `${parts[0]}/${parts[1]}`;
+    const indicatorContent = getIndicator(groupPath, parts[2]);
+    if (indicatorContent) return indicatorContent;
     return `Error: Indicator not found: ${pathArg}`;
   }
 
-  return indicatorContent;
+  return `Error: Path not found: ${pathArg}`;
 }
 
 async function readDigitalTwin(env, pathArg, userId) {
