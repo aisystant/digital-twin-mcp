@@ -13,8 +13,6 @@ compatibility_date = "2024-12-01"
 # invocation_logs = true
 
 [vars]
-ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
-ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
 CORS_ORIGIN = "*"
 
 [env.production]
@@ -31,8 +29,6 @@ name = "digital-twin-mcp-staging"
 name = "digital-twin-mcp-ory-auth"
 
 [env.ory-auth.vars]
-ORY_PROJECT_URL = "https://focused-banzai-t5mpd5nsrk.projects.oryapis.com"
-ORY_CLIENT_ID = "ccf90b6a-45ab-4c37-b981-4340d30b4a9c"
 RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
 CORS_ORIGIN = "*"
 
