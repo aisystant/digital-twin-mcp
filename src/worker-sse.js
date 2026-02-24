@@ -243,13 +243,14 @@ async function handleCallback(request, env, baseUrl) {
   try {
     const tokenResponse = await fetch(`${env.ORY_PROJECT_URL}/oauth2/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": "Basic " + btoa(`${env.ORY_CLIENT_ID}:${env.ORY_CLIENT_SECRET}`),
+      },
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code: oryCode,
         redirect_uri: oryCallbackUri,
-        client_id: env.ORY_CLIENT_ID,
-        client_secret: env.ORY_CLIENT_SECRET,
       }).toString(),
     });
 
