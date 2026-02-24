@@ -5,12 +5,10 @@ compatibility_date = "2024-12-01"
 # Account details - update with your Cloudflare account ID
 # account_id = "your-account-id-here"
 
-# Optional: Observability (requires paid plan)
-# [observability]
-# enabled = true
-# [observability.logs]
-# enabled = true
-# invocation_logs = true
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
 
 [vars]
 CORS_ORIGIN = "*"
