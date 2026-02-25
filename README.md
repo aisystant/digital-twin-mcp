@@ -1,6 +1,6 @@
 # Digital Twin MCP Server
 
-> **Тип репозитория:** `Downstream/instrument`
+> **Тип репозитория:** `DS/instrument`
 
 MCP (Model Context Protocol) server for Digital Twin learner data. Provides tools for AI Guide (Проводник) to work with learner profiles based on 4-type indicator classification.
 
