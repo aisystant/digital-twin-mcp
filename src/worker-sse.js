@@ -34,6 +34,31 @@ async function sha256(plain) {
 }
 
 // ============================================
+// Debug Helpers
+// ============================================
+
+function mask(value, visibleChars = 6) {
+  if (!value) return `<EMPTY: ${typeof value} ${value}>`;
+  const s = String(value);
+  if (s.length <= visibleChars) return s + "***";
+  return s.substring(0, visibleChars) + "***(" + s.length + " chars)";
+}
+
+function debugHeaders(request) {
+  const headers = {};
+  for (const [key, value] of request.headers.entries()) {
+    if (key.toLowerCase() === "authorization") {
+      headers[key] = mask(value, 20);
+    } else if (key.toLowerCase() === "cookie") {
+      headers[key] = mask(value, 15);
+    } else {
+      headers[key] = value;
+    }
+  }
+  return headers;
+}
+
+// ============================================
 // OAuth2 Authorization Server - KV Storage
 // ============================================
 
@@ -100,7 +125,9 @@ async function handleRegister(request, env) {
   let body;
   try {
     body = await request.json();
+    console.log("[register] request body:", JSON.stringify(body));
   } catch {
+    console.error("[register] FAIL: invalid JSON body");
     return jsonResponse({ error: "invalid_request", error_description: "Invalid JSON body" }, 400);
   }
 
@@ -115,14 +142,24 @@ async function handleRegister(request, env) {
     created_at: Date.now(),
   };
 
+  console.log("[register] generated client_id:", mask(clientId, 8));
+  console.log("[register] client_data:", JSON.stringify({
+    ...clientData,
+    client_id: mask(clientData.client_id, 8),
+  }));
+
   if (!clientData.redirect_uris.length) {
+    console.error("[register] FAIL: no redirect_uris");
     return jsonResponse({
       error: "invalid_client_metadata",
       error_description: "redirect_uris is required",
     }, 400);
   }
 
+  const kvKey = `oauth:client:${clientId}`;
+  console.log("[register] saving to KV:", kvKey);
   await kvPut(env, `oauth:client:${clientId}`, clientData);
+  console.log("[register] SUCCESS: client registered:", mask(clientId, 8));
 
   return jsonResponse({
     client_id: clientId,
@@ -147,7 +184,17 @@ async function handleAuthorize(request, env, baseUrl) {
   const codeChallengeMethod = url.searchParams.get("code_challenge_method");
   const scope = url.searchParams.get("scope") || "openid offline_access";
 
+  console.log("[authorize] params:", {
+    client_id: mask(clientId, 8),
+    redirect_uri: redirectUri,
+    state: mask(state, 8),
+    code_challenge: mask(codeChallenge, 8),
+    code_challenge_method: codeChallengeMethod,
+    scope,
+  });
+
   if (!clientId || !redirectUri || !codeChallenge) {
+    console.error("[authorize] MISSING required params:", { hasClientId: !!clientId, hasRedirectUri: !!redirectUri, hasCodeChallenge: !!codeChallenge });
     return jsonResponse({
       error: "invalid_request",
       error_description: "client_id, redirect_uri, and code_challenge are required",
@@ -155,6 +202,7 @@ async function handleAuthorize(request, env, baseUrl) {
   }
 
   if (codeChallengeMethod && codeChallengeMethod !== "S256") {
+    console.error("[authorize] unsupported code_challenge_method:", codeChallengeMethod);
     return jsonResponse({
       error: "invalid_request",
       error_description: "Only S256 code_challenge_method is supported",
@@ -162,12 +210,24 @@ async function handleAuthorize(request, env, baseUrl) {
   }
 
   // Validate client
-  const client = await kvGet(env, `oauth:client:${clientId}`);
+  const kvKey = `oauth:client:${clientId}`;
+  console.log("[authorize] looking up client in KV, key:", kvKey);
+  const client = await kvGet(env, kvKey);
+  console.log("[authorize] client lookup result:", client ? JSON.stringify({
+    client_id: mask(client.client_id, 8),
+    client_name: client.client_name,
+    redirect_uris: client.redirect_uris,
+    token_endpoint_auth_method: client.token_endpoint_auth_method,
+    grant_types: client.grant_types,
+  }) : "<NULL — client not found>");
+
   if (!client) {
+    console.error("[authorize] FAIL: client_id not found in KV:", mask(clientId, 8));
     return jsonResponse({ error: "invalid_client", error_description: "Unknown client_id" }, 400);
   }
 
   if (!client.redirect_uris.includes(redirectUri)) {
+    console.error("[authorize] FAIL: redirect_uri mismatch. Registered:", client.redirect_uris, "Requested:", redirectUri);
     return jsonResponse({
       error: "invalid_request",
       error_description: "redirect_uri not registered for this client",
@@ -176,7 +236,7 @@ async function handleAuthorize(request, env, baseUrl) {
 
   // Generate internal state to link Ory callback back to this request
   const internalState = generateRandomString(32);
-  await kvPut(env, `oauth:state:${internalState}`, {
+  const stateData = {
     client_id: clientId,
     redirect_uri: redirectUri,
     client_state: state,
@@ -184,9 +244,13 @@ async function handleAuthorize(request, env, baseUrl) {
     code_challenge_method: codeChallengeMethod || "S256",
     scope,
     created_at: Date.now(),
-  }, TTL.STATE);
-
-  console.log("[authorize] client_id:", clientId, "redirect_uri:", redirectUri, "baseUrl:", baseUrl);
+  };
+  console.log("[authorize] saving state to KV:", mask(internalState, 8), "data:", JSON.stringify({
+    ...stateData,
+    client_id: mask(stateData.client_id, 8),
+    code_challenge: mask(stateData.code_challenge, 8),
+  }));
+  await kvPut(env, `oauth:state:${internalState}`, stateData, TTL.STATE);
 
   // Redirect to Ory authorization endpoint
   const oryAuthUrl = new URL(`${env.ORY_PROJECT_URL}/oauth2/auth`);
@@ -195,6 +259,9 @@ async function handleAuthorize(request, env, baseUrl) {
   oryAuthUrl.searchParams.set("redirect_uri", `${baseUrl}/callback`);
   oryAuthUrl.searchParams.set("scope", "openid offline_access");
   oryAuthUrl.searchParams.set("state", internalState);
+
+  console.log("[authorize] redirecting to Ory:", oryAuthUrl.toString());
+  console.log("[authorize] Ory params: client_id:", mask(env.ORY_CLIENT_ID, 8), "redirect_uri:", `${baseUrl}/callback`);
 
   return new Response(null, {
     status: 302,
@@ -212,58 +279,114 @@ async function handleCallback(request, env, baseUrl) {
   const internalState = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
-  console.log("[callback] received:", { hasCode: !!oryCode, hasState: !!internalState, error, baseUrl });
+  console.log("[callback] all query params:", Object.fromEntries(url.searchParams.entries()));
+  console.log("[callback] received:", {
+    oryCode: mask(oryCode, 8),
+    internalState: mask(internalState, 8),
+    error,
+    error_description: url.searchParams.get("error_description"),
+    baseUrl,
+  });
 
   if (error) {
     const errorDesc = url.searchParams.get("error_description") || "Authorization denied";
+    console.error("[callback] Ory returned error:", error, "description:", errorDesc);
     return new Response(`Authorization failed: ${errorDesc}`, { status: 400 });
   }
 
   if (!oryCode || !internalState) {
+    console.error("[callback] MISSING params: hasCode:", !!oryCode, "hasState:", !!internalState);
     return new Response("Missing code or state parameter", { status: 400 });
   }
 
   // Retrieve pending auth state
-  const pendingState = await kvGet(env, `oauth:state:${internalState}`);
+  const stateKey = `oauth:state:${internalState}`;
+  console.log("[callback] looking up state in KV:", mask(stateKey, 20));
+  const pendingState = await kvGet(env, stateKey);
   if (!pendingState) {
-    console.error("[callback] state not found in KV:", internalState);
+    console.error("[callback] FAIL: state not found in KV. Key:", mask(stateKey, 20));
     return new Response("Invalid or expired state", { status: 400 });
   }
 
-  console.log("[callback] pending state found, client_id:", pendingState.client_id, "redirect_uri:", pendingState.redirect_uri);
+  console.log("[callback] pending state found:", JSON.stringify({
+    client_id: mask(pendingState.client_id, 8),
+    redirect_uri: pendingState.redirect_uri,
+    code_challenge: mask(pendingState.code_challenge, 8),
+    code_challenge_method: pendingState.code_challenge_method,
+    scope: pendingState.scope,
+    created_at: pendingState.created_at,
+    age_seconds: Math.round((Date.now() - pendingState.created_at) / 1000),
+  }));
 
   // Clean up state
-  await kvDelete(env, `oauth:state:${internalState}`);
+  await kvDelete(env, stateKey);
 
   // Exchange Ory code for Ory token
   const oryCallbackUri = `${baseUrl}/callback`;
-  console.log("[callback] exchanging Ory code, redirect_uri:", oryCallbackUri, "ORY_CLIENT_ID:", env.ORY_CLIENT_ID, "hasSecret:", !!env.ORY_CLIENT_SECRET);
+  const oryTokenUrl = `${env.ORY_PROJECT_URL}/oauth2/token`;
+  const basicAuthCredentials = `${env.ORY_CLIENT_ID}:${env.ORY_CLIENT_SECRET}`;
+  const basicAuthHeader = "Basic " + btoa(basicAuthCredentials);
+
+  const tokenRequestBody = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: oryCode,
+    redirect_uri: oryCallbackUri,
+  });
+
+  console.log("[callback] === Ory Token Exchange Request ===");
+  console.log("[callback] POST URL:", oryTokenUrl);
+  console.log("[callback] Authorization header (Basic):", mask(basicAuthHeader, 15));
+  console.log("[callback] Basic auth decoded parts:");
+  console.log("[callback]   client_id:", mask(env.ORY_CLIENT_ID, 8));
+  console.log("[callback]   client_secret:", mask(env.ORY_CLIENT_SECRET, 4));
+  console.log("[callback]   client_secret length:", env.ORY_CLIENT_SECRET ? env.ORY_CLIENT_SECRET.length : "UNDEFINED");
+  console.log("[callback]   client_secret type:", typeof env.ORY_CLIENT_SECRET);
+  console.log("[callback] Body params:");
+  console.log("[callback]   grant_type: authorization_code");
+  console.log("[callback]   code:", mask(oryCode, 8));
+  console.log("[callback]   redirect_uri:", oryCallbackUri);
+  console.log("[callback] Full body string:", tokenRequestBody.toString().substring(0, 200));
 
   let oryTokenData;
   try {
-    const tokenResponse = await fetch(`${env.ORY_PROJECT_URL}/oauth2/token`, {
+    const tokenResponse = await fetch(oryTokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": "Basic " + btoa(`${env.ORY_CLIENT_ID}:${env.ORY_CLIENT_SECRET}`),
+        "Authorization": basicAuthHeader,
       },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: oryCode,
-        redirect_uri: oryCallbackUri,
-      }).toString(),
+      body: tokenRequestBody.toString(),
     });
+
+    console.log("[callback] === Ory Token Exchange Response ===");
+    console.log("[callback] status:", tokenResponse.status, tokenResponse.statusText);
+    console.log("[callback] response headers:", JSON.stringify(Object.fromEntries(tokenResponse.headers.entries())));
 
     if (!tokenResponse.ok) {
       const errBody = await tokenResponse.text();
-      console.error("[callback] Ory token exchange failed:", tokenResponse.status, errBody);
+      console.error("[callback] FAIL: Ory token exchange failed!");
+      console.error("[callback] status:", tokenResponse.status);
+      console.error("[callback] response body:", errBody);
+      console.error("[callback] === Debug checklist ===");
+      console.error("[callback] 1. Is ORY_CLIENT_ID correct?", mask(env.ORY_CLIENT_ID, 8));
+      console.error("[callback] 2. Is ORY_CLIENT_SECRET set and non-empty?", !!env.ORY_CLIENT_SECRET, "length:", env.ORY_CLIENT_SECRET?.length);
+      console.error("[callback] 3. Does redirect_uri match Ory config?", oryCallbackUri);
+      console.error("[callback] 4. Is Ory client configured for client_secret_basic auth?");
+      console.error("[callback] 5. Is the Ory client configured for authorization_code grant?");
       return new Response(`Failed to exchange authorization code: ${errBody}`, { status: 502 });
     }
 
     oryTokenData = await tokenResponse.json();
-    console.log("[callback] Ory token received, has id_token:", !!oryTokenData.id_token, "has refresh:", !!oryTokenData.refresh_token);
+    console.log("[callback] Ory token exchange SUCCESS!");
+    console.log("[callback] response keys:", Object.keys(oryTokenData));
+    console.log("[callback] has id_token:", !!oryTokenData.id_token);
+    console.log("[callback] has access_token:", !!oryTokenData.access_token, mask(oryTokenData.access_token, 8));
+    console.log("[callback] has refresh_token:", !!oryTokenData.refresh_token);
+    console.log("[callback] token_type:", oryTokenData.token_type);
+    console.log("[callback] expires_in:", oryTokenData.expires_in);
+    console.log("[callback] scope:", oryTokenData.scope);
   } catch (err) {
-    console.error("[callback] Ory token exchange error:", err);
+    console.error("[callback] Ory token exchange EXCEPTION:", err.message, err.stack);
     return new Response("Failed to exchange authorization code", { status: 502 });
   }
 
@@ -273,34 +396,47 @@ async function handleCallback(request, env, baseUrl) {
     // Decode JWT payload (we trust Ory, no signature verification needed for sub extraction)
     try {
       const parts = oryTokenData.id_token.split(".");
+      console.log("[callback] id_token parts count:", parts.length);
       const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      console.log("[callback] id_token payload keys:", Object.keys(payload));
+      console.log("[callback] id_token payload.sub:", mask(payload.sub, 8));
+      console.log("[callback] id_token payload.iss:", payload.iss);
+      console.log("[callback] id_token payload.aud:", payload.aud);
       userId = payload.sub;
-    } catch {
-      console.error("Failed to decode Ory id_token");
+    } catch (e) {
+      console.error("[callback] Failed to decode Ory id_token:", e.message);
     }
   }
 
   if (!userId) {
     // Fallback: use userinfo endpoint
+    console.log("[callback] No userId from id_token, trying userinfo endpoint");
     try {
-      const userinfoResp = await fetch(`${env.ORY_PROJECT_URL}/userinfo`, {
+      const userinfoUrl = `${env.ORY_PROJECT_URL}/userinfo`;
+      console.log("[callback] fetching userinfo:", userinfoUrl);
+      const userinfoResp = await fetch(userinfoUrl, {
         headers: { Authorization: `Bearer ${oryTokenData.access_token}` },
       });
+      console.log("[callback] userinfo response status:", userinfoResp.status);
       if (userinfoResp.ok) {
         const userinfo = await userinfoResp.json();
+        console.log("[callback] userinfo keys:", Object.keys(userinfo));
         userId = userinfo.sub;
+      } else {
+        const errText = await userinfoResp.text();
+        console.error("[callback] userinfo failed:", errText);
       }
-    } catch {
-      console.error("Failed to fetch userinfo from Ory");
+    } catch (e) {
+      console.error("[callback] Failed to fetch userinfo from Ory:", e.message);
     }
   }
 
   if (!userId) {
-    console.error("[callback] failed to extract userId from Ory tokens");
+    console.error("[callback] FAIL: could not extract userId from any source");
     return new Response("Failed to identify user", { status: 502 });
   }
 
-  console.log("[callback] userId extracted:", userId);
+  console.log("[callback] userId extracted:", mask(userId, 8));
 
   // Generate MCP authorization code
   const mcpCode = generateRandomString(32);
@@ -334,18 +470,52 @@ async function handleCallback(request, env, baseUrl) {
  * Token exchange (authorization_code + PKCE) and refresh_token grant
  */
 async function handleToken(request, env) {
+  // Check for client_secret_basic auth from MCP client
+  const authHeader = request.headers.get("Authorization");
+  let basicClientId = null;
+  let basicClientSecret = null;
+  if (authHeader && authHeader.startsWith("Basic ")) {
+    try {
+      const decoded = atob(authHeader.slice(6));
+      const colonIdx = decoded.indexOf(":");
+      basicClientId = decoded.substring(0, colonIdx);
+      basicClientSecret = decoded.substring(colonIdx + 1);
+      console.log("[token] client_secret_basic auth detected:");
+      console.log("[token]   basic client_id:", mask(basicClientId, 8));
+      console.log("[token]   basic client_secret:", mask(basicClientSecret, 4));
+    } catch (e) {
+      console.error("[token] Failed to decode Basic auth header:", e.message);
+    }
+  } else {
+    console.log("[token] No Basic auth header. Auth header:", mask(authHeader, 10));
+  }
+
   let body;
   try {
     const text = await request.text();
-    console.log("[token] raw body:", text.substring(0, 200));
+    console.log("[token] raw body (first 300 chars):", text.substring(0, 300));
+    console.log("[token] Content-Type:", request.headers.get("Content-Type"));
     body = Object.fromEntries(new URLSearchParams(text));
   } catch (err) {
-    console.error("[token] body parse error:", err);
+    console.error("[token] body parse error:", err.message);
     return jsonResponse({ error: "invalid_request", error_description: "Invalid request body" }, 400);
   }
 
+  // If client_id came via Basic auth, use it
+  if (basicClientId && !body.client_id) {
+    console.log("[token] using client_id from Basic auth header");
+    body.client_id = basicClientId;
+  }
+
   const grantType = body.grant_type;
-  console.log("[token] grant_type:", grantType, "client_id:", body.client_id, "has code:", !!body.code, "has code_verifier:", !!body.code_verifier);
+  console.log("[token] === Parsed Token Request ===");
+  console.log("[token] grant_type:", grantType);
+  console.log("[token] client_id:", mask(body.client_id, 8));
+  console.log("[token] code:", mask(body.code, 8));
+  console.log("[token] code_verifier:", mask(body.code_verifier, 8));
+  console.log("[token] redirect_uri:", body.redirect_uri);
+  console.log("[token] refresh_token:", mask(body.refresh_token, 8));
+  console.log("[token] all body keys:", Object.keys(body));
 
   if (grantType === "authorization_code") {
     return handleAuthorizationCodeGrant(body, env);
@@ -483,23 +653,33 @@ async function handleRefreshTokenGrant(body, env) {
 // ============================================
 
 async function authenticate(request, env) {
+  console.log("[auth] authenticating request...");
+
   // If no DATABASE_URL configured, allow all (dev mode)
   if (!env?.DATABASE_URL) {
+    console.log("[auth] no DATABASE_URL → dev mode, allowing all");
     return { valid: true, userId: null };
   }
 
   const authHeader = request.headers.get("Authorization");
+  console.log("[auth] Authorization header:", mask(authHeader, 15));
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.error("[auth] FAIL: missing or invalid Bearer token");
     return { valid: false, error: "missing_token" };
   }
 
   const token = authHeader.slice(7);
-  const tokenData = await kvGet(env, `oauth:token:${token}`);
+  const kvKey = `oauth:token:${token}`;
+  console.log("[auth] looking up token in KV:", mask(kvKey, 20));
+  const tokenData = await kvGet(env, kvKey);
 
   if (!tokenData) {
+    console.error("[auth] FAIL: token not found in KV:", mask(token, 8));
     return { valid: false, error: "invalid_token" };
   }
 
+  console.log("[auth] SUCCESS: user_id:", mask(tokenData.user_id, 8), "client_id:", mask(tokenData.client_id, 8));
   return { valid: true, userId: tokenData.user_id };
 }
 
@@ -876,6 +1056,17 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const baseUrl = getBaseUrl(env, request);
+
+    console.log(`\n========== [${request.method}] ${url.pathname} ==========`);
+    console.log("[req] full URL:", url.toString());
+    console.log("[req] baseUrl:", baseUrl);
+    console.log("[req] headers:", JSON.stringify(debugHeaders(request)));
+    console.log("[env] ORY_PROJECT_URL:", mask(env.ORY_PROJECT_URL, 20));
+    console.log("[env] ORY_CLIENT_ID:", mask(env.ORY_CLIENT_ID, 8));
+    console.log("[env] ORY_CLIENT_SECRET:", mask(env.ORY_CLIENT_SECRET, 4));
+    console.log("[env] RESOURCE_URL:", mask(env.RESOURCE_URL, 30));
+    console.log("[env] DATABASE_URL:", mask(env.DATABASE_URL, 15));
+    console.log("[env] KV bound:", !!env.DIGITAL_TWIN_DATA);
 
     const cors = {
       "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",

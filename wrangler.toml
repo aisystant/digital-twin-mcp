@@ -9,6 +9,7 @@ compatibility_date = "2024-12-01"
 [observability.logs]
 enabled = true
 invocation_logs = true
+head_sampling_rate = 1
 
 [vars]
 CORS_ORIGIN = "*"
@@ -29,6 +30,12 @@ name = "digital-twin-mcp-ory-auth"
 [env.ory-auth.vars]
 RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
 CORS_ORIGIN = "*"
+
+[env.ory-auth.observability]
+[env.ory-auth.observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
 
 # KV for ory-auth env (same as main)
 [[env.ory-auth.kv_namespaces]]
