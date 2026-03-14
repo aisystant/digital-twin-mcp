@@ -1,5 +1,5 @@
 // Auto-generated from MD files - do not edit manually
-// Generated at: 2026-02-15T07:43:59.414Z
+// Generated at: 2026-03-14T11:13:52.954Z
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = {
@@ -64,6 +64,38 @@ export const METAMODEL = {
       "name": "2_collected",
       "description": "# 2. Собираемые показатели (IND.2.*)\n\n**Тип:** Первичные данные\n**Источник:** Автоматически из действий пользователя\n**Права:** Пользователь — Read, Проводник — Read, Система — Write\n\n## Описание\n\nСобираемые показатели — это данные, которые система получает автоматически из действий пользователя: прохождение курсов, время сессий, платежи, активность в клубе, логи взаимодействия с ИИ.\n\n## Подгруппы\n\n- **2_1_account** — Аккаунт и сессии\n- **2_2_courses** — Прохождение курсов\n- **2_3_practice** — Задания и практики\n- **2_4_time** — Время и ритм\n- **2_5_finance** — Финансы\n- **2_8_ai_logs** — Логи ботов и ИИ\n- **2_9_community** — Сообщество (Клуб)\n\n## Версия реализации\n\n**v2.0** — Требуется интеграция с LMS, ботами и системами оплаты\n",
       "subgroups": [
+        {
+          "name": "2_1_account",
+          "fullPath": "2_collected/2_1_account",
+          "description": "",
+          "indicators": {
+            "01_Сессии": "# IND.2.1.01\n\n**Name:** Сессии\n**Name (EN):** Sessions\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"sessions_total\": 0,\n  \"events_total\": 0,\n  \"first_event_at\": null,\n  \"last_event_at\": null\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `sessions_total`, `events_total`, `first_event_at`, `last_event_at`\n"
+          }
+        },
+        {
+          "name": "2_2_courses",
+          "fullPath": "2_collected/2_2_courses",
+          "description": "",
+          "indicators": {
+            "01_Прогресс обучения": "# IND.2.2.01\n\n**Name:** Прогресс обучения\n**Name (EN):** Learning progress\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"marathon_steps_total\": 0,\n  \"feed_completed_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `marathon_steps_total`, `feed_completed_total`\n"
+          }
+        },
+        {
+          "name": "2_3_practice",
+          "fullPath": "2_collected/2_3_practice",
+          "description": "",
+          "indicators": {
+            "01_Практика и тесты": "# IND.2.3.01\n\n**Name:** Практика и тесты\n**Name (EN):** Practice and assessments\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"training_attempts_total\": 0,\n  \"training_passed_total\": 0,\n  \"assessments_total\": 0,\n  \"marathon_tasks_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `training_attempts_total`, `training_passed_total`, `assessments_total`, `marathon_tasks_total`\n"
+          }
+        },
+        {
+          "name": "2_4_time",
+          "fullPath": "2_collected/2_4_time",
+          "description": "",
+          "indicators": {
+            "01_Ритм активности": "# IND.2.4.01\n\n**Name:** Ритм активности\n**Name (EN):** Activity rhythm\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"active_days\": 0,\n  \"events_last_7d\": 0,\n  \"events_last_30d\": 0,\n  \"ai_chats_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `active_days`, `events_last_7d`, `events_last_30d`, `ai_chats_total`\n"
+          }
+        },
         {
           "name": "2_5_finance",
           "fullPath": "2_collected/2_5_finance",
@@ -269,6 +301,34 @@ export const METAMODEL = {
       }
     },
     {
+      "name": "2_collected/2_1_account",
+      "description": "",
+      "indicators": {
+        "01_Сессии": "# IND.2.1.01\n\n**Name:** Сессии\n**Name (EN):** Sessions\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"sessions_total\": 0,\n  \"events_total\": 0,\n  \"first_event_at\": null,\n  \"last_event_at\": null\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `sessions_total`, `events_total`, `first_event_at`, `last_event_at`\n"
+      }
+    },
+    {
+      "name": "2_collected/2_2_courses",
+      "description": "",
+      "indicators": {
+        "01_Прогресс обучения": "# IND.2.2.01\n\n**Name:** Прогресс обучения\n**Name (EN):** Learning progress\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"marathon_steps_total\": 0,\n  \"feed_completed_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `marathon_steps_total`, `feed_completed_total`\n"
+      }
+    },
+    {
+      "name": "2_collected/2_3_practice",
+      "description": "",
+      "indicators": {
+        "01_Практика и тесты": "# IND.2.3.01\n\n**Name:** Практика и тесты\n**Name (EN):** Practice and assessments\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"training_attempts_total\": 0,\n  \"training_passed_total\": 0,\n  \"assessments_total\": 0,\n  \"marathon_tasks_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `training_attempts_total`, `training_passed_total`, `assessments_total`, `marathon_tasks_total`\n"
+      }
+    },
+    {
+      "name": "2_collected/2_4_time",
+      "description": "",
+      "indicators": {
+        "01_Ритм активности": "# IND.2.4.01\n\n**Name:** Ритм активности\n**Name (EN):** Activity rhythm\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"active_days\": 0,\n  \"events_last_7d\": 0,\n  \"events_last_30d\": 0,\n  \"ai_chats_total\": 0\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `active_days`, `events_last_7d`, `events_last_30d`, `ai_chats_total`\n"
+      }
+    },
+    {
       "name": "2_collected/2_5_finance",
       "description": "",
       "indicators": {
@@ -398,7 +458,7 @@ export const METAMODEL = {
     }
   ],
   "rootFiles": {
-    "degrees": "# Degrees (Степени квалификации)\n\nVersion: 0.3\n\nСтепени квалификации МИМ (Мастерской инженеров-менеджеров)\n\n## Degrees List\n\n### DEG.Freshman\n- **Name:** Первокурсник\n- **Order:** 0\n- **Description:** Поступил на первый курс, но ещё не закончил его\n\n### DEG.Student\n- **Name:** Ученик\n- **Order:** 1\n- **Description:** Демонстрирует ежедневный слот саморазвития и инвестирует более 10 часов в неделю\n\n### DEG.Worker\n- **Name:** Работник\n- **Order:** 2\n- **Description:** Показывает рациональную работу в логике целей организации с фокусом на ключевых объектах предметной области\n\n### DEG.Strategist\n- **Name:** Стратег\n- **Order:** 3\n- **Description:** Проявляет выбор метода и предмета работ при неопределённости, применяя системное мышление\n\n### DEG.Specialist\n- **Name:** Специалист\n- **Order:** 4\n- **Description:** Демонстрирует понимание обобщённого инженерного процесса и разделения труда, освоение руководств инженерной серии\n\n### DEG.Practitioner\n- **Name:** Практик\n- **Order:** 5\n- **Description:** Показывает изменение собственной культуры работы и организацию до 10 человек\n\n### DEG.Master\n- **Name:** Мастер\n- **Order:** 6\n- **Description:** Инициирует и проводит проекты организационного развития в масштабе компании, добиваясь заметного изменения поведения сотрудников\n\n### DEG.Reformer\n- **Name:** Реформатор\n- **Order:** 7\n- **Description:** Масштабирует мастерство до изменения культуры работы за пределами одного предприятия — на отрасли и сообщества\n\n### DEG.PublicFigure\n- **Name:** Общественный деятель\n- **Order:** 8\n- **Description:** Вносит вклад цивилизационного масштаба, создавая системы мирового значения\n",
+    "degrees": "# Degrees (Степени квалификации)\n\nVersion: 0.3\n\nСтепени квалификации МИМ (Мастерской инженеров-менеджеров)\n\n| Code | Order | Name | Description |\n|------|-------|------|-------------|\n| DEG.Freshman | 0 | Первокурсник | Поступил на первый курс, но ещё не закончил его |\n| DEG.Student | 1 | Ученик | Демонстрирует ежедневный слот саморазвития и инвестирует более 10 часов в неделю |\n| DEG.Worker | 2 | Работник | Показывает рациональную работу в логике целей организации с фокусом на ключевых объектах предметной области |\n| DEG.Strategist | 3 | Стратег | Проявляет выбор метода и предмета работ при неопределённости, применяя системное мышление |\n| DEG.Specialist | 4 | Специалист | Демонстрирует понимание обобщённого инженерного процесса и разделения труда, освоение руководств инженерной серии |\n| DEG.Practitioner | 5 | Практик | Показывает изменение собственной культуры работы и организацию до 10 человек |\n| DEG.Master | 6 | Мастер | Инициирует и проводит проекты организационного развития в масштабе компании, добиваясь заметного изменения поведения сотрудников |\n| DEG.Reformer | 7 | Реформатор | Масштабирует мастерство до изменения культуры работы за пределами одного предприятия — на отрасли и сообщества |\n| DEG.PublicFigure | 8 | Общественный деятель | Вносит вклад цивилизационного масштаба, создавая системы мирового значения |\n",
     "stages": "# Stages (Ступени)\n\nVersion: 0.3\n\nСтупени внутри Степени квалификации «Ученик» (DEG.Student)\n\n## Stages List\n\n### STG.Student.Random\n- **Name:** Случайный\n- **Duration:** undefined weeks\n- **Description:** Начальная ступень без устойчивого учебного ритма\n\n### STG.Student.Practicing\n- **Name:** Практикующий\n- **Duration:** undefined weeks\n- **Description:** Регулярная практика с минимальными требованиями\n\n### STG.Student.Systematic\n- **Name:** Систематический\n- **Duration:** undefined weeks\n- **Description:** Систематическое обучение с рефлексией\n\n### STG.Student.Disciplined\n- **Name:** Дисциплинированный\n- **Duration:** undefined weeks\n- **Description:** Высокая дисциплина и устойчивые привычки\n\n### STG.Student.Proactive\n- **Name:** Проактивный\n- **Duration:** undefined weeks\n- **Description:** Максимальная вовлечённость и проактивность\n"
   },
   "accessControl": {
