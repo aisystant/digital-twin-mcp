@@ -12,23 +12,73 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
 const DATA_PATH = path.join(__dirname, "..", "data", "twin.json");
 
-// Helper: read and parse twin data
+// ============================================
+// Storage backend: Neon (if DATABASE_URL set) or file (twin.json)
+// ============================================
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const DT_USER_ID = process.env.DT_USER_ID;
+const useNeon = !!(DATABASE_URL && DT_USER_ID);
+
+let neonSql = null;
+let _neonMigrated = false;
+
+async function getNeonSql() {
+  if (neonSql) return neonSql;
+  const { neon } = await import("@neondatabase/serverless");
+  neonSql = neon(DATABASE_URL);
+  return neonSql;
+}
+
+async function ensureNeonTable(sql) {
+  if (_neonMigrated) return;
+  await sql`
+    CREATE TABLE IF NOT EXISTS digital_twins (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  _neonMigrated = true;
+}
+
+// Unified read
 async function readTwinData() {
+  if (useNeon) {
+    const sql = await getNeonSql();
+    await ensureNeonTable(sql);
+    const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${DT_USER_ID}`;
+    return rows.length ? deepParseJSONStrings(rows[0].data) : {};
+  }
   const content = await fs.readFile(DATA_PATH, "utf-8");
   return JSON.parse(content);
 }
 
-// Helper: write twin data
+// Unified write
 async function writeTwinData(data) {
+  if (useNeon) {
+    const sql = await getNeonSql();
+    await ensureNeonTable(sql);
+    await sql`
+      INSERT INTO digital_twins (user_id, data, updated_at)
+      VALUES (${DT_USER_ID}, ${JSON.stringify(data)}, NOW())
+      ON CONFLICT (user_id) DO UPDATE
+      SET data = EXCLUDED.data, updated_at = NOW()
+    `;
+    return;
+  }
   await fs.writeFile(DATA_PATH, JSON.stringify(data, null, 2));
 }
 
-// Helper: normalize path - accept both dots and slashes
+// ============================================
+// Path helpers
+// ============================================
+
 function normalizePath(pathStr) {
   return pathStr.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
 }
 
-// Helper: get value by path (accepts both dots and slashes)
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -39,7 +89,6 @@ function getByPath(obj, pathStr) {
   return current;
 }
 
-// Helper: set value by path (accepts both dots and slashes)
 function setByPath(obj, pathStr, value) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -51,6 +100,30 @@ function setByPath(obj, pathStr, value) {
     current = current[part];
   }
   current[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Recursively parse string values that contain JSON objects/arrays.
+ * Aligns with worker-sse.js behavior for Neon JSONB data.
+ */
+function deepParseJSONStrings(obj) {
+  if (typeof obj !== "object" || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(deepParseJSONStrings);
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+      try {
+        result[key] = deepParseJSONStrings(JSON.parse(value));
+      } catch {
+        result[key] = value;
+      }
+    } else if (typeof value === "object" && value !== null) {
+      result[key] = deepParseJSONStrings(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 // Helper: parse MD file to extract metadata
@@ -212,6 +285,13 @@ async function readDigitalTwin(pathArg) {
     return { error: `Path not found: ${pathArg}` };
   }
 
+  // Parse string values that are actually JSON objects/arrays
+  if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+    try { return JSON.parse(value); } catch {}
+  }
+  if (typeof value === "object" && value !== null) {
+    return deepParseJSONStrings(value);
+  }
   return value;
 }
 
@@ -235,7 +315,7 @@ async function writeDigitalTwin(pathArg, value, role = "user") {
 const server = new Server(
   {
     name: "digital-twin-mcp-server",
-    version: "2.0.0",
+    version: "2.1.0",
   },
   {
     capabilities: {
@@ -265,14 +345,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "read_digital_twin",
         description:
-          "Read data from the digital twin by path. All indicator types (IND.1-4) are readable.",
+          "Read data from the digital twin by path. All indicator types (IND.1-4) are readable. Includes engagement metrics (2_collected) synced from the learning bot.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
               description:
-                "Path to data (e.g., 'indicators.agency.role_set', 'stage')",
+                "Path to data. Examples: '2_collected' (all engagement), '2_collected/2_1_account' (sessions), '2_collected/2_4_time' (activity rhythm), '1_declarative/1_2_goals' (declared goals)",
             },
           },
           required: ["path"],
@@ -353,7 +433,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Digital Twin MCP Server running on stdio");
+  const backend = useNeon ? `Neon (user: ${DT_USER_ID.substring(0, 8)}...)` : `file (${DATA_PATH})`;
+  console.error(`Digital Twin MCP Server v2.1.0 running on stdio [${backend}]`);
   console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
 }
 
