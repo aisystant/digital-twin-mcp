@@ -7,6 +7,8 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { calculateProfile, detectStep, generateDebugReport, detectDrifts } from "./profile-calculator.js";
+import { ProfileCache } from "./cache.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
@@ -19,6 +21,9 @@ const DATA_PATH = path.join(__dirname, "..", "data", "twin.json");
 const DATABASE_URL = process.env.DATABASE_URL;
 const DT_USER_ID = process.env.DT_USER_ID;
 const useNeon = !!(DATABASE_URL && DT_USER_ID);
+
+// Profile projection cache (TTL 5 min, invalidated on write)
+const profileCache = new ProfileCache();
 
 let neonSql = null;
 let _neonMigrated = false;
@@ -315,7 +320,7 @@ async function writeDigitalTwin(pathArg, value, role = "user") {
 const server = new Server(
   {
     name: "digital-twin-mcp-server",
-    version: "2.1.0",
+    version: "2.2.0",
   },
   {
     capabilities: {
@@ -377,6 +382,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["path", "data"],
         },
       },
+      {
+        name: "get_profile_by_areas",
+        description:
+          "Профиль ученика по 5 областям развития: GAP-анализ мировоззрения и мастерства относительно нормативов текущей ступени. Read-only projection из L3 показателей ЦД.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            user_id: {
+              type: "string",
+              description:
+                "ID пользователя. Если не указан — из DT_USER_ID env (single-user mode)",
+            },
+            step: {
+              type: "integer",
+              enum: [1, 2, 3, 4, 5],
+              description:
+                "Ступень ученика (1=Случайный..5=Проактивный). Если не указан — из ЦД (indicators.stage.current)",
+            },
+            debug: {
+              type: "boolean",
+              description:
+                "Расширенный ответ: reasoning trace, формулы, baseline comparison. Для наставников и разработчиков.",
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -407,6 +439,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     if (name === "write_digital_twin") {
       const result = await writeDigitalTwin(args.path, args.data);
+      // Invalidate profile cache on any write
+      const userId = DT_USER_ID || "default";
+      profileCache.invalidate(userId);
       return {
         content: [
           {
@@ -414,6 +449,96 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: JSON.stringify(result, null, 2),
           },
         ],
+      };
+    }
+
+    if (name === "get_profile_by_areas") {
+      const startMs = Date.now();
+      const userId = args.user_id || DT_USER_ID || "default";
+
+      // Security: validate user_id matches session context
+      if (DT_USER_ID && args.user_id && args.user_id !== DT_USER_ID) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              error: "ACCESS_DENIED",
+              message: "Cannot read another user's profile",
+            }),
+          }],
+          isError: true,
+        };
+      }
+
+      // Resolve step
+      let step = args.step;
+      if (!step) {
+        const twinData = await readTwinData();
+        step = detectStep(twinData);
+        if (!step) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "STEP_NOT_FOUND",
+                message: "Step not provided and could not be detected from ЦД (indicators.stage.current)",
+              }),
+            }],
+            isError: true,
+          };
+        }
+      }
+
+      // Check cache
+      const cached = profileCache.get(userId, step);
+      if (cached) {
+        const durationMs = Date.now() - startMs;
+        console.error(JSON.stringify({
+          event: "profile_gap_calculated", user_id: userId, step,
+          max_gap_area: cached.data.max_gap?.area, cache_hit: true,
+          mapping_version: cached.data.mapping_version, duration_ms: durationMs,
+        }));
+        return {
+          content: [{ type: "text", text: JSON.stringify(cached.data, null, 2) }],
+        };
+      }
+
+      // Calculate
+      const twinData = await readTwinData();
+      const profile = calculateProfile(twinData, step, userId);
+
+      // Cache result
+      profileCache.set(userId, step, profile);
+
+      // Drift detection
+      const drifts = detectDrifts(profile);
+
+      // Structured log (observability)
+      const durationMs = Date.now() - startMs;
+      const logEntry = {
+        event: "profile_gap_calculated", user_id: userId, step,
+        max_gap_area: profile.max_gap?.area, cache_hit: false,
+        mapping_version: profile.mapping_version, duration_ms: durationMs,
+        drift_count: drifts.length,
+      };
+      if (drifts.length > 0) {
+        logEntry.drifts = drifts.map(d => `${d.area}.${d.dimension}:${d.score}∉[${d.expected}]`);
+      }
+      console.error(JSON.stringify(logEntry));
+
+      // Debug mode: human-readable report + JSON
+      if (args.debug) {
+        const debugReport = generateDebugReport(profile);
+        return {
+          content: [
+            { type: "text", text: debugReport },
+            { type: "text", text: "\n---\n\n```json\n" + JSON.stringify(profile, null, 2) + "\n```" },
+          ],
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
       };
     }
 
@@ -434,8 +559,8 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const backend = useNeon ? `Neon (user: ${DT_USER_ID.substring(0, 8)}...)` : `file (${DATA_PATH})`;
-  console.error(`Digital Twin MCP Server v2.1.0 running on stdio [${backend}]`);
-  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
+  console.error(`Digital Twin MCP Server v2.2.0 running on stdio [${backend}]`);
+  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin, get_profile_by_areas");
 }
 
 main().catch((error) => {
