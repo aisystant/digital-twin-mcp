@@ -1,5 +1,5 @@
 // Auto-generated from MD files - do not edit manually
-// Generated at: 2026-03-14T11:13:52.954Z
+// Generated at: 2026-04-04T07:48:25.321Z
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = {
@@ -57,13 +57,35 @@ export const METAMODEL = {
             "15_Время запроса стратегирования": "# IND.1.4.8\n\n**Name:** Время запроса стратегирования\n**Name (EN):** Strategy request time\n**Type:** structural\n**Format:** day_time\n**Unit:** day_of_week + HH:MM\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n",
             "17_Время получения аналитики": "# IND.1.4.9\n\n**Name:** Время получения аналитики\n**Name (EN):** Weekly analytics time\n**Type:** structural\n**Format:** day_time\n**Unit:** day_of_week + HH:MM\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
           }
+        },
+        {
+          "name": "1_5_delivery",
+          "fullPath": "1_declarative/1_5_delivery",
+          "description": "",
+          "indicators": {
+            "01_Формат подачи": "# IND.1.5.01\n\n**Name:** Формат подачи\n**Name (EN):** Delivery format\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"examples\", \"tasks\", \"theory\", \"mix\"]\n```\n\n## Description\n\nПредпочитаемый формат учебного материала:\n- **examples** -- через разбор примеров и кейсов\n- **tasks** -- через практические задания\n- **theory** -- через объяснение концепций и принципов\n- **mix** -- смешанный формат (по умолчанию)\n\nИсточник: онбординг или настройки профиля. Адаптируется по feedback.\n",
+            "02_Детализация": "# IND.1.5.02\n\n**Name:** Детализация\n**Name (EN):** Detail level\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"brief\", \"detailed\"]\n```\n\n## Description\n\nПредпочитаемая степень подробности материала:\n- **brief** -- краткие объяснения, суть, минимум контекста\n- **detailed** -- развёрнутые объяснения с обоснованием и контекстом\n\nИсточник: онбординг или настройки профиля.\n",
+            "03_Длительность занятия": "# IND.1.5.03\n\n**Name:** Длительность занятия\n**Name (EN):** Session duration\n**Type:** temporal\n**Format:** integer\n**Unit:** minutes\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Description\n\nПредпочитаемая длительность одного учебного занятия в минутах.\nТипичные значения: 15, 30, 60.\n\nИсточник: онбординг (study_duration). Объём порции материала вычисляется автоматически.\n",
+            "04_Предпочитаемый темп": "# IND.1.5.04\n\n**Name:** Предпочитаемый темп\n**Name (EN):** Preferred pace\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"slow\", \"normal\", \"intensive\"]\n```\n\n## Description\n\nПредпочитаемая интенсивность подачи нового материала:\n- **slow** -- меньше нового за сессию, больше повторения и закрепления\n- **normal** -- сбалансированный темп (по умолчанию)\n- **intensive** -- максимум нового, минимум повторения\n\nНачальное значение: декларируется пользователем. В будущем адаптируется по данным: если completion_rate падает при intensive -- система рекомендует снизить темп.\n",
+            "05_Предпочитаемая сложность": "# IND.1.5.05\n\n**Name:** Предпочитаемая сложность\n**Name (EN):** Preferred difficulty\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"basic\", \"advanced\", \"adaptive\"]\n```\n\n## Description\n\nПредпочитаемый уровень сложности учебного материала:\n- **basic** -- упрощённые объяснения, больше поддержки\n- **advanced** -- продвинутый уровень, меньше scaffolding\n- **adaptive** -- система подбирает автоматически по данным (по умолчанию)\n\nПри adaptive: сложность определяется из IND.3.4.01 (ступень ученика) и IND.3.11.01 (когнитивная нагрузка).\n",
+            "06_Время суток для обучения": "# IND.1.5.06\n\n**Name:** Время суток для обучения\n**Name (EN):** Preferred study time\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"morning\", \"afternoon\", \"evening\"]\n```\n\n## Description\n\nПредпочитаемое время суток для учебных сессий:\n- **morning** -- утро (до 12:00)\n- **afternoon** -- день (12:00--18:00)\n- **evening** -- вечер (после 18:00)\n\nИсточник: онбординг (schedule_time). Используется для планирования напоминаний и доставки материалов.\n"
+          }
         }
       ]
     },
     {
       "name": "2_collected",
-      "description": "# 2. Собираемые показатели (IND.2.*)\n\n**Тип:** Первичные данные\n**Источник:** Автоматически из действий пользователя\n**Права:** Пользователь — Read, Проводник — Read, Система — Write\n\n## Описание\n\nСобираемые показатели — это данные, которые система получает автоматически из действий пользователя: прохождение курсов, время сессий, платежи, активность в клубе, логи взаимодействия с ИИ.\n\n## Подгруппы\n\n- **2_1_account** — Аккаунт и сессии\n- **2_2_courses** — Прохождение курсов\n- **2_3_practice** — Задания и практики\n- **2_4_time** — Время и ритм\n- **2_5_finance** — Финансы\n- **2_8_ai_logs** — Логи ботов и ИИ\n- **2_9_community** — Сообщество (Клуб)\n\n## Версия реализации\n\n**v2.0** — Требуется интеграция с LMS, ботами и системами оплаты\n",
+      "description": "# 2. Собираемые показатели (IND.2.*)\n\n**Тип:** Первичные данные\n**Источник:** Автоматически из действий пользователя\n**Права:** Пользователь — Read, Проводник — Read, Система — Write\n\n## Описание\n\nСобираемые показатели — это данные, которые система получает автоматически из действий пользователя: прохождение курсов, время сессий, платежи, активность в клубе, логи взаимодействия с ИИ.\n\n## Подгруппы\n\n- **2_1_account** — Аккаунт и сессии\n- **2_2_courses** — Прохождение курсов\n- **2_3_practice** — Задания и практики\n- **2_4_time** — Время и ритм\n- **2_5_community** — Сообщество (Клуб)\n- **2_6_coding** — Рабочее время и кодирование (WakaTime)\n- **2_7_iwe** — Платформенная активность (IWE git, Claude Code, РП)\n- **2_8_ai_logs** — Логи ботов и ИИ\n- **2_9_finance** — Финансы\n\n## Версия реализации\n\n**v2.2** — Swap 2_5↔2_9 (community ближе к учёбе, finance в конец). Добавлены 2_6_coding + 2_7_iwe. WP-106.\n",
       "subgroups": [
+        {
+          "name": "2_10_learning_history",
+          "fullPath": "2_collected/2_10_learning_history",
+          "description": "",
+          "indicators": {
+            "01_Пройденные темы": "# IND.2.10.01\n\n**Name:** Пройденные темы\n**Name (EN):** Completed topics\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nХронологический список пройденных тем с метаданными. Структура:\n\n```json\n[\n  {\n    \"topic_id\": \"string\",\n    \"topic_title\": \"string\",\n    \"source\": \"marathon|feed|tailor\",\n    \"completed_at\": \"ISO date\",\n    \"complexity_level\": 1-5,\n    \"fixation_length\": 0\n  }\n]\n```\n\nИсточник: события `marathon_step`, `feed_completed`, `learning_completed` из Event Store.\nИспользуется для: построения learning path, выявления пробелов, рекомендации следующей темы.\n",
+            "02_Результаты тренировок": "# IND.2.10.02\n\n**Name:** Результаты тренировок\n**Name (EN):** Training results\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nИстория попыток тренировок принципов. Структура:\n\n```json\n[\n  {\n    \"principle_id\": \"string\",\n    \"depth\": 1-3,\n    \"passed\": true,\n    \"attempt_at\": \"ISO date\",\n    \"p_mastery\": 0.0-1.0\n  }\n]\n```\n\nИсточник: события `training_attempt` из Event Store. Поле `p_mastery` вычисляется BKT (IND.3.2.04).\nИспользуется для: Knowledge Tracing, определения зон мастерства и пробелов, входные данные для IND.3.11.03 (рекомендуемый фокус).\n"
+          }
+        },
         {
           "name": "2_1_account",
           "fullPath": "2_collected/2_1_account",
@@ -97,13 +119,46 @@ export const METAMODEL = {
           }
         },
         {
-          "name": "2_5_finance",
-          "fullPath": "2_collected/2_5_finance",
+          "name": "2_5_community",
+          "fullPath": "2_collected/2_5_community",
           "description": "",
           "indicators": {
-            "01_Статус подписки": "# IND.2.5.01\n\n**Name:** Статус подписки\n**Name (EN):** Subscription status\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\n  \"free\",\n  \"basic\",\n  \"pro\",\n  \"enterprise\"\n]\n```\n",
-            "02_Реферальная активность": "# IND.2.5.02\n\n**Name:** Реферальная активность\n**Name (EN):** Referral activity\n**Type:** frequency\n**Format:** integer\n**Unit:** referrals\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n",
-            "03_Срок участия в программе": "# IND.2.5.03\n\n**Name:** Срок участия в программе\n**Name (EN):** Program tenure\n**Type:** temporal\n**Format:** integer\n**Unit:** months\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+            "01_Активность в сообществе": "# IND.2.5.01\n\n**Name:** Активность в сообществе\n**Name (EN):** Community activity\n**Type:** frequency\n**Format:** integer\n**Unit:** interactions/week\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": 0\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 1\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 3\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 5\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 10\n  }\n}\n```\n"
+          }
+        },
+        {
+          "name": "2_6_coding",
+          "fullPath": "2_collected/2_6_coding",
+          "description": "",
+          "indicators": {
+            "01_Время кодирования сегодня": "# IND.2.6.01\n\n**Name:** Время кодирования сегодня\n**Name (EN):** Coding seconds today\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+            "02_Время кодирования 7д": "# IND.2.6.02\n\n**Name:** Время кодирования за 7 дней\n**Name (EN):** Coding seconds 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+            "03_Время кодирования 30д": "# IND.2.6.03\n\n**Name:** Время кодирования за 30 дней\n**Name (EN):** Coding seconds 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+            "04_Дни кодирования 30д": "# IND.2.6.04\n\n**Name:** Дни активного кодирования за 30 дней\n**Name (EN):** Coding active days 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries` (count of days with >0 seconds)\n",
+            "05_Топ проектов": "# IND.2.6.05\n\n**Name:** Топ проектов по времени\n**Name (EN):** Top projects\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → projects (top 10)\n",
+            "06_Топ языков": "# IND.2.6.06\n\n**Name:** Топ языков программирования\n**Name (EN):** Top languages\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → languages (top 5)\n",
+            "07_Топ редакторов": "# IND.2.6.07\n\n**Name:** Топ редакторов\n**Name (EN):** Top editors\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → editors (top 5)\n"
+          }
+        },
+        {
+          "name": "2_7_iwe",
+          "fullPath": "2_collected/2_7_iwe",
+          "description": "",
+          "indicators": {
+            "01_Коммиты сегодня": "# IND.2.7.01\n\n**Name:** Коммиты сегодня\n**Name (EN):** Commits today\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"24 hours ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+            "02_Коммиты 7д": "# IND.2.7.02\n\n**Name:** Коммиты за 7 дней\n**Name (EN):** Commits 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"7 days ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+            "03_Коммиты 30д": "# IND.2.7.03\n\n**Name:** Коммиты за 30 дней\n**Name (EN):** Commits 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"30 days ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+            "04_Активные репо 7д": "# IND.2.7.04\n\n**Name:** Активные репозитории за 7 дней\n**Name (EN):** Repos active 7d\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"commits\": \"integer\"}\n]\n```\n\n## Source\n`git log` per repo, aggregated by repo name\n",
+            "05_Файлы изменены 7д": "# IND.2.7.05\n\n**Name:** Файлов изменено за 7 дней\n**Name (EN):** Files changed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N files changed\"\n",
+            "06_Строки добавлены 7д": "# IND.2.7.06\n\n**Name:** Строк добавлено за 7 дней\n**Name (EN):** Lines added 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N insertions(+)\"\n",
+            "07_Строки удалены 7д": "# IND.2.7.07\n\n**Name:** Строк удалено за 7 дней\n**Name (EN):** Lines removed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N deletions(-)\"\n",
+            "08_Сессии Claude Code всего": "# IND.2.7.08\n\n**Name:** Сессии Claude Code всего\n**Name (EN):** Claude sessions total\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`open-sessions.log` line count (cumulative)\n",
+            "09_Сессии Claude Code 7д": "# IND.2.7.09\n\n**Name:** Сессии Claude Code за 7 дней\n**Name (EN):** Claude sessions 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`open-sessions.log` entries filtered by date (last 7 days)\n",
+            "10_РП выполнено всего": "# IND.2.7.10\n\n**Name:** РП выполнено всего\n**Name (EN):** Work products completed total\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Source\nMEMORY.md table — count rows with status `done`\n",
+            "11_РП в работе": "# IND.2.7.11\n\n**Name:** РП в работе\n**Name (EN):** Work products in progress\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nMEMORY.md table — count rows with status `in_progress`\n",
+            "12_РП выполнено 7д": "# IND.2.7.12\n\n**Name:** РП выполнено за 7 дней\n**Name (EN):** Work products completed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nMEMORY.md table + git log (commits mentioning \"done\" in WP context files, last 7 days)\n",
+            "13_Здоровье планировщика": "# IND.2.7.13\n\n**Name:** Здоровье планировщика\n**Name (EN):** Scheduler health\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Enum Values\n```json\n[\n  \"green\",\n  \"yellow\",\n  \"red\"\n]\n```\n\n## Source\n`daily-report.sh` output (traffic light status based on scheduled task completion)\n",
+            "14_Дни работы экзокортекса": "# IND.2.7.14\n\n**Name:** Дней работы экзокортекса\n**Name (EN):** Exocortex uptime days\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`~/.local/state/exocortex/` — count of unique date markers\n"
           }
         },
         {
@@ -115,11 +170,13 @@ export const METAMODEL = {
           }
         },
         {
-          "name": "2_9_community",
-          "fullPath": "2_collected/2_9_community",
+          "name": "2_9_finance",
+          "fullPath": "2_collected/2_9_finance",
           "description": "",
           "indicators": {
-            "01_Активность в сообществе": "# IND.2.9.1\n\n**Name:** Активность в сообществе\n**Name (EN):** Community activity\n**Type:** frequency\n**Format:** integer\n**Unit:** interactions/week\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": 0\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 1\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 3\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 5\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 10\n  }\n}\n```\n"
+            "01_Статус подписки": "# IND.2.9.01\n\n**Name:** Статус подписки\n**Name (EN):** Subscription status\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\n  \"free\",\n  \"basic\",\n  \"pro\",\n  \"enterprise\"\n]\n```\n",
+            "02_Реферальная активность": "# IND.2.9.02\n\n**Name:** Реферальная активность\n**Name (EN):** Referral activity\n**Type:** frequency\n**Format:** integer\n**Unit:** referrals\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n",
+            "03_Срок участия в программе": "# IND.2.9.03\n\n**Name:** Срок участия в программе\n**Name (EN):** Program tenure\n**Type:** temporal\n**Format:** integer\n**Unit:** months\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
           }
         }
       ]
@@ -134,6 +191,18 @@ export const METAMODEL = {
           "description": "",
           "indicators": {
             "01_Интегральный индекс агентности": "# IND.3.10.1\n\n**Name:** Интегральный индекс агентности\n**Name (EN):** Integral agency index\n**Type:** scale\n**Format:** float\n**Unit:** 0-100\n**Description:** Агрегированный показатель из групп 2.1-2.3\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n"
+          }
+        },
+        {
+          "name": "3_11_diagnostic",
+          "fullPath": "3_derived/3_11_diagnostic",
+          "description": "",
+          "indicators": {
+            "01_Диагностическое состояние": "# IND.3.11.01\n\n**Name:** Диагностическое состояние\n**Name (EN):** Diagnostic state\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Enum Values\n```json\n[\"chaos\", \"stuck\", \"turn\", \"development\"]\n```\n\n## Description\n\nТекущее состояние ученика в цикле развития:\n- **chaos** -- нет ритма, нет целей, хаотичная активность или отсутствие активности\n- **stuck** -- есть ритм, но нет прогресса (плато: те же ошибки, та же ступень)\n- **turn** -- переломный момент: осознание проблемы, начало изменений\n- **development** -- устойчивый рост по нескольким характеристикам\n\nВычисляется из: IND.3.1 (агентность) + IND.3.2 (мастерство) + IND.3.4 (ступень) + динамика за 4 недели.\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": \"chaos\"\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": \"stuck\"\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": \"turn\"\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": \"development\"\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": \"development\"\n  }\n}\n```\n",
+            "02_Основные заблуждения": "# IND.3.11.02\n\n**Name:** Основные заблуждения\n**Name (EN):** Key misconceptions\n**Type:** semantic\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nСписок выявленных заблуждений (misconceptions) с уровнем уверенности. Структура:\n\n```json\n[\n  {\n    \"misconception_type\": \"string\",\n    \"area\": \"string\",\n    \"confidence\": 0.0-1.0,\n    \"source\": \"test|chat|practice\",\n    \"detected_at\": \"ISO date\"\n  }\n]\n```\n\nИсточник: DP.ARCH.003 SS5.4 (Misconception Map). Экстрагируется асинхронно через LLM из тестов и чатов.\nИспользуется Портным для подбора корректирующих материалов и Диагностом для определения зон развития.\n",
+            "03_Рекомендуемый фокус": "# IND.3.11.03\n\n**Name:** Рекомендуемый фокус\n**Name (EN):** Recommended focus\n**Type:** semantic\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Description\n\nОбласти с наибольшим GAP между текущим и целевым уровнем. Структура:\n\n```json\n[\n  {\n    \"area\": \"string\",\n    \"current_mastery\": 0.0-1.0,\n    \"target_mastery\": 0.0-1.0,\n    \"gap\": 0.0-1.0,\n    \"priority\": \"high|medium|low\"\n  }\n]\n```\n\nВычисляется из: IND.3.5 (mastery по ролям) + IND.3.3.04 (worldview_gaps из BKT) + IND.3.4 (ступень).\nПриоритизация: PD.FORM.029 (агентность > мастерство > ресурсность > стабильность > баланс).\n",
+            "04_Когнитивная нагрузка": "# IND.3.11.04\n\n**Name:** Когнитивная нагрузка\n**Name (EN):** Cognitive load\n**Type:** scale\n**Format:** float\n**Unit:** 0-1\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nОценка текущей когнитивной нагрузки: насколько сложен материал относительно способностей ученика.\n\n- **0.0--0.3** -- материал слишком прост (скука, нет роста)\n- **0.3--0.7** -- оптимальная зона (Zone of Proximal Development)\n- **0.7--1.0** -- перегрузка (фрустрация, бросание задач)\n\nВычисляется из: Bloom-уровень текущих задач vs результаты (pass_rate, время ответа, количество попыток). При перегрузке система рекомендует снизить сложность (IND.1.5.05) или темп (IND.1.5.04).\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": null\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 0.5,\n    \"period_weeks\": 4\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 0.5,\n    \"period_weeks\": 8\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 0.6,\n    \"period_weeks\": 12\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 0.6,\n    \"period_weeks\": 24\n  }\n}\n```\n",
+            "05_Уровень фрустрации": "# IND.3.11.05\n\n**Name:** Уровень фрустрации\n**Name (EN):** Frustration level\n**Type:** scale\n**Format:** float\n**Unit:** 0-1\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nИндикатор эмоционального барьера в обучении. Высокая фрустрация = риск отказа от обучения.\n\n- **0.0--0.2** -- низкая (комфортно, но может быть скучно)\n- **0.2--0.5** -- умеренная (продуктивное напряжение)\n- **0.5--0.8** -- высокая (снижает мотивацию)\n- **0.8--1.0** -- критическая (бросание задач, уход)\n\nВычисляется из поведенческих сигналов:\n- Бросание задач (начал, не завершил)\n- Снижение сложности в настройках\n- Падение регулярности после сложных тем\n- Резкое сокращение времени сессий\n\nПри > 0.5: Nudge Engine предлагает поддержку, Портной переключает на более простой материал.\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": null\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 0.4,\n    \"period_weeks\": 4\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 0.35,\n    \"period_weeks\": 8\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 0.3,\n    \"period_weeks\": 12\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 0.25,\n    \"period_weeks\": 24\n  }\n}\n```\n"
           }
         },
         {
@@ -301,10 +370,30 @@ export const METAMODEL = {
       }
     },
     {
+      "name": "1_declarative/1_5_delivery",
+      "description": "",
+      "indicators": {
+        "01_Формат подачи": "# IND.1.5.01\n\n**Name:** Формат подачи\n**Name (EN):** Delivery format\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"examples\", \"tasks\", \"theory\", \"mix\"]\n```\n\n## Description\n\nПредпочитаемый формат учебного материала:\n- **examples** -- через разбор примеров и кейсов\n- **tasks** -- через практические задания\n- **theory** -- через объяснение концепций и принципов\n- **mix** -- смешанный формат (по умолчанию)\n\nИсточник: онбординг или настройки профиля. Адаптируется по feedback.\n",
+        "02_Детализация": "# IND.1.5.02\n\n**Name:** Детализация\n**Name (EN):** Detail level\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"brief\", \"detailed\"]\n```\n\n## Description\n\nПредпочитаемая степень подробности материала:\n- **brief** -- краткие объяснения, суть, минимум контекста\n- **detailed** -- развёрнутые объяснения с обоснованием и контекстом\n\nИсточник: онбординг или настройки профиля.\n",
+        "03_Длительность занятия": "# IND.1.5.03\n\n**Name:** Длительность занятия\n**Name (EN):** Session duration\n**Type:** temporal\n**Format:** integer\n**Unit:** minutes\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Description\n\nПредпочитаемая длительность одного учебного занятия в минутах.\nТипичные значения: 15, 30, 60.\n\nИсточник: онбординг (study_duration). Объём порции материала вычисляется автоматически.\n",
+        "04_Предпочитаемый темп": "# IND.1.5.04\n\n**Name:** Предпочитаемый темп\n**Name (EN):** Preferred pace\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"slow\", \"normal\", \"intensive\"]\n```\n\n## Description\n\nПредпочитаемая интенсивность подачи нового материала:\n- **slow** -- меньше нового за сессию, больше повторения и закрепления\n- **normal** -- сбалансированный темп (по умолчанию)\n- **intensive** -- максимум нового, минимум повторения\n\nНачальное значение: декларируется пользователем. В будущем адаптируется по данным: если completion_rate падает при intensive -- система рекомендует снизить темп.\n",
+        "05_Предпочитаемая сложность": "# IND.1.5.05\n\n**Name:** Предпочитаемая сложность\n**Name (EN):** Preferred difficulty\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"basic\", \"advanced\", \"adaptive\"]\n```\n\n## Description\n\nПредпочитаемый уровень сложности учебного материала:\n- **basic** -- упрощённые объяснения, больше поддержки\n- **advanced** -- продвинутый уровень, меньше scaffolding\n- **adaptive** -- система подбирает автоматически по данным (по умолчанию)\n\nПри adaptive: сложность определяется из IND.3.4.01 (ступень ученика) и IND.3.11.01 (когнитивная нагрузка).\n",
+        "06_Время суток для обучения": "# IND.1.5.06\n\n**Name:** Время суток для обучения\n**Name (EN):** Preferred study time\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\"morning\", \"afternoon\", \"evening\"]\n```\n\n## Description\n\nПредпочитаемое время суток для учебных сессий:\n- **morning** -- утро (до 12:00)\n- **afternoon** -- день (12:00--18:00)\n- **evening** -- вечер (после 18:00)\n\nИсточник: онбординг (schedule_time). Используется для планирования напоминаний и доставки материалов.\n"
+      }
+    },
+    {
       "name": "2_collected/2_1_account",
       "description": "",
       "indicators": {
         "01_Сессии": "# IND.2.1.01\n\n**Name:** Сессии\n**Name (EN):** Sessions\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Schema\n```json\n{\n  \"sessions_total\": 0,\n  \"events_total\": 0,\n  \"first_event_at\": null,\n  \"last_event_at\": null\n}\n```\n\n## Source\n- **Table:** `development.engagement` (Neon)\n- **Sync:** ежедневно (bot scheduler)\n- **Fields:** `sessions_total`, `events_total`, `first_event_at`, `last_event_at`\n"
+      }
+    },
+    {
+      "name": "2_collected/2_10_learning_history",
+      "description": "",
+      "indicators": {
+        "01_Пройденные темы": "# IND.2.10.01\n\n**Name:** Пройденные темы\n**Name (EN):** Completed topics\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nХронологический список пройденных тем с метаданными. Структура:\n\n```json\n[\n  {\n    \"topic_id\": \"string\",\n    \"topic_title\": \"string\",\n    \"source\": \"marathon|feed|tailor\",\n    \"completed_at\": \"ISO date\",\n    \"complexity_level\": 1-5,\n    \"fixation_length\": 0\n  }\n]\n```\n\nИсточник: события `marathon_step`, `feed_completed`, `learning_completed` из Event Store.\nИспользуется для: построения learning path, выявления пробелов, рекомендации следующей темы.\n",
+        "02_Результаты тренировок": "# IND.2.10.02\n\n**Name:** Результаты тренировок\n**Name (EN):** Training results\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nИстория попыток тренировок принципов. Структура:\n\n```json\n[\n  {\n    \"principle_id\": \"string\",\n    \"depth\": 1-3,\n    \"passed\": true,\n    \"attempt_at\": \"ISO date\",\n    \"p_mastery\": 0.0-1.0\n  }\n]\n```\n\nИсточник: события `training_attempt` из Event Store. Поле `p_mastery` вычисляется BKT (IND.3.2.04).\nИспользуется для: Knowledge Tracing, определения зон мастерства и пробелов, входные данные для IND.3.11.03 (рекомендуемый фокус).\n"
       }
     },
     {
@@ -329,12 +418,43 @@ export const METAMODEL = {
       }
     },
     {
-      "name": "2_collected/2_5_finance",
+      "name": "2_collected/2_5_community",
       "description": "",
       "indicators": {
-        "01_Статус подписки": "# IND.2.5.01\n\n**Name:** Статус подписки\n**Name (EN):** Subscription status\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\n  \"free\",\n  \"basic\",\n  \"pro\",\n  \"enterprise\"\n]\n```\n",
-        "02_Реферальная активность": "# IND.2.5.02\n\n**Name:** Реферальная активность\n**Name (EN):** Referral activity\n**Type:** frequency\n**Format:** integer\n**Unit:** referrals\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n",
-        "03_Срок участия в программе": "# IND.2.5.03\n\n**Name:** Срок участия в программе\n**Name (EN):** Program tenure\n**Type:** temporal\n**Format:** integer\n**Unit:** months\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
+        "01_Активность в сообществе": "# IND.2.5.01\n\n**Name:** Активность в сообществе\n**Name (EN):** Community activity\n**Type:** frequency\n**Format:** integer\n**Unit:** interactions/week\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": 0\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 1\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 3\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 5\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 10\n  }\n}\n```\n"
+      }
+    },
+    {
+      "name": "2_collected/2_6_coding",
+      "description": "",
+      "indicators": {
+        "01_Время кодирования сегодня": "# IND.2.6.01\n\n**Name:** Время кодирования сегодня\n**Name (EN):** Coding seconds today\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+        "02_Время кодирования 7д": "# IND.2.6.02\n\n**Name:** Время кодирования за 7 дней\n**Name (EN):** Coding seconds 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+        "03_Время кодирования 30д": "# IND.2.6.03\n\n**Name:** Время кодирования за 30 дней\n**Name (EN):** Coding seconds 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries`\n",
+        "04_Дни кодирования 30д": "# IND.2.6.04\n\n**Name:** Дни активного кодирования за 30 дней\n**Name (EN):** Coding active days 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nWakaTime API `/users/current/summaries` (count of days with >0 seconds)\n",
+        "05_Топ проектов": "# IND.2.6.05\n\n**Name:** Топ проектов по времени\n**Name (EN):** Top projects\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → projects (top 10)\n",
+        "06_Топ языков": "# IND.2.6.06\n\n**Name:** Топ языков программирования\n**Name (EN):** Top languages\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → languages (top 5)\n",
+        "07_Топ редакторов": "# IND.2.6.07\n\n**Name:** Топ редакторов\n**Name (EN):** Top editors\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"seconds\": \"integer\"}\n]\n```\n\n## Source\nWakaTime API `/users/current/summaries` → editors (top 5)\n"
+      }
+    },
+    {
+      "name": "2_collected/2_7_iwe",
+      "description": "",
+      "indicators": {
+        "01_Коммиты сегодня": "# IND.2.7.01\n\n**Name:** Коммиты сегодня\n**Name (EN):** Commits today\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"24 hours ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+        "02_Коммиты 7д": "# IND.2.7.02\n\n**Name:** Коммиты за 7 дней\n**Name (EN):** Commits 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"7 days ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+        "03_Коммиты 30д": "# IND.2.7.03\n\n**Name:** Коммиты за 30 дней\n**Name (EN):** Commits 30d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --since=\"30 days ago\" --oneline --no-merges` across all ~/IWE/ repos\n",
+        "04_Активные репо 7д": "# IND.2.7.04\n\n**Name:** Активные репозитории за 7 дней\n**Name (EN):** Repos active 7d\n**Type:** temporal\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Structure\n```json\n[\n  {\"name\": \"string\", \"commits\": \"integer\"}\n]\n```\n\n## Source\n`git log` per repo, aggregated by repo name\n",
+        "05_Файлы изменены 7д": "# IND.2.7.05\n\n**Name:** Файлов изменено за 7 дней\n**Name (EN):** Files changed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N files changed\"\n",
+        "06_Строки добавлены 7д": "# IND.2.7.06\n\n**Name:** Строк добавлено за 7 дней\n**Name (EN):** Lines added 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N insertions(+)\"\n",
+        "07_Строки удалены 7д": "# IND.2.7.07\n\n**Name:** Строк удалено за 7 дней\n**Name (EN):** Lines removed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`git log --shortstat --since=\"7 days ago\"` → sum of \"N deletions(-)\"\n",
+        "08_Сессии Claude Code всего": "# IND.2.7.08\n\n**Name:** Сессии Claude Code всего\n**Name (EN):** Claude sessions total\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`open-sessions.log` line count (cumulative)\n",
+        "09_Сессии Claude Code 7д": "# IND.2.7.09\n\n**Name:** Сессии Claude Code за 7 дней\n**Name (EN):** Claude sessions 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`open-sessions.log` entries filtered by date (last 7 days)\n",
+        "10_РП выполнено всего": "# IND.2.7.10\n\n**Name:** РП выполнено всего\n**Name (EN):** Work products completed total\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Source\nMEMORY.md table — count rows with status `done`\n",
+        "11_РП в работе": "# IND.2.7.11\n\n**Name:** РП в работе\n**Name (EN):** Work products in progress\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nMEMORY.md table — count rows with status `in_progress`\n",
+        "12_РП выполнено 7д": "# IND.2.7.12\n\n**Name:** РП выполнено за 7 дней\n**Name (EN):** Work products completed 7d\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\nMEMORY.md table + git log (commits mentioning \"done\" in WP context files, last 7 days)\n",
+        "13_Здоровье планировщика": "# IND.2.7.13\n\n**Name:** Здоровье планировщика\n**Name (EN):** Scheduler health\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Enum Values\n```json\n[\n  \"green\",\n  \"yellow\",\n  \"red\"\n]\n```\n\n## Source\n`daily-report.sh` output (traffic light status based on scheduled task completion)\n",
+        "14_Дни работы экзокортекса": "# IND.2.7.14\n\n**Name:** Дней работы экзокортекса\n**Name (EN):** Exocortex uptime days\n**Type:** temporal\n**Format:** integer\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: false\n\n## Source\n`~/.local/state/exocortex/` — count of unique date markers\n"
       }
     },
     {
@@ -345,10 +465,12 @@ export const METAMODEL = {
       }
     },
     {
-      "name": "2_collected/2_9_community",
+      "name": "2_collected/2_9_finance",
       "description": "",
       "indicators": {
-        "01_Активность в сообществе": "# IND.2.9.1\n\n**Name:** Активность в сообществе\n**Name (EN):** Community activity\n**Type:** frequency\n**Format:** integer\n**Unit:** interactions/week\n\n## Flags\n- for_prompts: false\n- for_qualification: true\n- trainee_model: false\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": 0\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 1\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 3\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 5\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 10\n  }\n}\n```\n"
+        "01_Статус подписки": "# IND.2.9.01\n\n**Name:** Статус подписки\n**Name (EN):** Subscription status\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Enum Values\n```json\n[\n  \"free\",\n  \"basic\",\n  \"pro\",\n  \"enterprise\"\n]\n```\n",
+        "02_Реферальная активность": "# IND.2.9.02\n\n**Name:** Реферальная активность\n**Name (EN):** Referral activity\n**Type:** frequency\n**Format:** integer\n**Unit:** referrals\n\n## Flags\n- for_prompts: false\n- for_qualification: false\n- trainee_model: false\n",
+        "03_Срок участия в программе": "# IND.2.9.03\n\n**Name:** Срок участия в программе\n**Name (EN):** Program tenure\n**Type:** temporal\n**Format:** integer\n**Unit:** months\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n"
       }
     },
     {
@@ -367,6 +489,17 @@ export const METAMODEL = {
       "description": "",
       "indicators": {
         "01_Интегральный индекс агентности": "# IND.3.10.1\n\n**Name:** Интегральный индекс агентности\n**Name (EN):** Integral agency index\n**Type:** scale\n**Format:** float\n**Unit:** 0-100\n**Description:** Агрегированный показатель из групп 2.1-2.3\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n"
+      }
+    },
+    {
+      "name": "3_derived/3_11_diagnostic",
+      "description": "",
+      "indicators": {
+        "01_Диагностическое состояние": "# IND.3.11.01\n\n**Name:** Диагностическое состояние\n**Name (EN):** Diagnostic state\n**Type:** categorical\n**Format:** enum\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: true\n\n## Enum Values\n```json\n[\"chaos\", \"stuck\", \"turn\", \"development\"]\n```\n\n## Description\n\nТекущее состояние ученика в цикле развития:\n- **chaos** -- нет ритма, нет целей, хаотичная активность или отсутствие активности\n- **stuck** -- есть ритм, но нет прогресса (плато: те же ошибки, та же ступень)\n- **turn** -- переломный момент: осознание проблемы, начало изменений\n- **development** -- устойчивый рост по нескольким характеристикам\n\nВычисляется из: IND.3.1 (агентность) + IND.3.2 (мастерство) + IND.3.4 (ступень) + динамика за 4 недели.\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": \"chaos\"\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": \"stuck\"\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": \"turn\"\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": \"development\"\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": \"development\"\n  }\n}\n```\n",
+        "02_Основные заблуждения": "# IND.3.11.02\n\n**Name:** Основные заблуждения\n**Name (EN):** Key misconceptions\n**Type:** semantic\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nСписок выявленных заблуждений (misconceptions) с уровнем уверенности. Структура:\n\n```json\n[\n  {\n    \"misconception_type\": \"string\",\n    \"area\": \"string\",\n    \"confidence\": 0.0-1.0,\n    \"source\": \"test|chat|practice\",\n    \"detected_at\": \"ISO date\"\n  }\n]\n```\n\nИсточник: DP.ARCH.003 SS5.4 (Misconception Map). Экстрагируется асинхронно через LLM из тестов и чатов.\nИспользуется Портным для подбора корректирующих материалов и Диагностом для определения зон развития.\n",
+        "03_Рекомендуемый фокус": "# IND.3.11.03\n\n**Name:** Рекомендуемый фокус\n**Name (EN):** Recommended focus\n**Type:** semantic\n**Format:** structured_text\n\n## Flags\n- for_prompts: true\n- for_qualification: false\n- trainee_model: true\n\n## Description\n\nОбласти с наибольшим GAP между текущим и целевым уровнем. Структура:\n\n```json\n[\n  {\n    \"area\": \"string\",\n    \"current_mastery\": 0.0-1.0,\n    \"target_mastery\": 0.0-1.0,\n    \"gap\": 0.0-1.0,\n    \"priority\": \"high|medium|low\"\n  }\n]\n```\n\nВычисляется из: IND.3.5 (mastery по ролям) + IND.3.3.04 (worldview_gaps из BKT) + IND.3.4 (ступень).\nПриоритизация: PD.FORM.029 (агентность > мастерство > ресурсность > стабильность > баланс).\n",
+        "04_Когнитивная нагрузка": "# IND.3.11.04\n\n**Name:** Когнитивная нагрузка\n**Name (EN):** Cognitive load\n**Type:** scale\n**Format:** float\n**Unit:** 0-1\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nОценка текущей когнитивной нагрузки: насколько сложен материал относительно способностей ученика.\n\n- **0.0--0.3** -- материал слишком прост (скука, нет роста)\n- **0.3--0.7** -- оптимальная зона (Zone of Proximal Development)\n- **0.7--1.0** -- перегрузка (фрустрация, бросание задач)\n\nВычисляется из: Bloom-уровень текущих задач vs результаты (pass_rate, время ответа, количество попыток). При перегрузке система рекомендует снизить сложность (IND.1.5.05) или темп (IND.1.5.04).\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": null\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 0.5,\n    \"period_weeks\": 4\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 0.5,\n    \"period_weeks\": 8\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 0.6,\n    \"period_weeks\": 12\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 0.6,\n    \"period_weeks\": 24\n  }\n}\n```\n",
+        "05_Уровень фрустрации": "# IND.3.11.05\n\n**Name:** Уровень фрустрации\n**Name (EN):** Frustration level\n**Type:** scale\n**Format:** float\n**Unit:** 0-1\n\n## Flags\n- for_prompts: true\n- for_qualification: true\n- trainee_model: false\n\n## Description\n\nИндикатор эмоционального барьера в обучении. Высокая фрустрация = риск отказа от обучения.\n\n- **0.0--0.2** -- низкая (комфортно, но может быть скучно)\n- **0.2--0.5** -- умеренная (продуктивное напряжение)\n- **0.5--0.8** -- высокая (снижает мотивацию)\n- **0.8--1.0** -- критическая (бросание задач, уход)\n\nВычисляется из поведенческих сигналов:\n- Бросание задач (начал, не завершил)\n- Снижение сложности в настройках\n- Падение регулярности после сложных тем\n- Резкое сокращение времени сессий\n\nПри > 0.5: Nudge Engine предлагает поддержку, Портной переключает на более простой материал.\n\n## Thresholds\n```json\n{\n  \"STG.Student.Random\": {\n    \"value\": null\n  },\n  \"STG.Student.Practicing\": {\n    \"value\": 0.4,\n    \"period_weeks\": 4\n  },\n  \"STG.Student.Systematic\": {\n    \"value\": 0.35,\n    \"period_weeks\": 8\n  },\n  \"STG.Student.Disciplined\": {\n    \"value\": 0.3,\n    \"period_weeks\": 12\n  },\n  \"STG.Student.Proactive\": {\n    \"value\": 0.25,\n    \"period_weeks\": 24\n  }\n}\n```\n"
       }
     },
     {
