@@ -675,7 +675,30 @@ async function authenticate(request, env) {
   const tokenData = await kvGet(env, kvKey);
 
   if (!tokenData) {
-    console.error("[auth] FAIL: token not found in KV:", mask(token, 8));
+    console.log("[auth] token not in KV, trying Ory fallback...");
+
+    // Fallback: validate via Ory userinfo (for tokens from Gateway proxy)
+    if (env?.ORY_PROJECT_URL) {
+      try {
+        const userinfoUrl = `${env.ORY_PROJECT_URL}/userinfo`;
+        const oryResp = await fetch(userinfoUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (oryResp.ok) {
+          const data = await oryResp.json();
+          const userId = data.sub || data.user_id;
+          if (userId) {
+            console.log("[auth] SUCCESS via Ory fallback: user_id:", mask(userId, 8));
+            return { valid: true, userId };
+          }
+        }
+      } catch (e) {
+        console.error("[auth] Ory fallback failed:", e.message);
+      }
+    }
+
+    console.error("[auth] FAIL: token not found in KV and Ory fallback failed:", mask(token, 8));
     return { valid: false, error: "invalid_token" };
   }
 
