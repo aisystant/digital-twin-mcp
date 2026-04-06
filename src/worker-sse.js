@@ -1176,7 +1176,16 @@ export default {
         }));
       }
 
-      // POST - requires authentication
+      // POST - parse message first to check method
+      const message = await request.json();
+
+      // tools/list is public (no auth required) — allows Gateway to discover tools
+      if (message.method === "tools/list") {
+        const response = await handleMCP(env, message, null);
+        return withCors(jsonResponse(response));
+      }
+
+      // All other methods require authentication
       const authResult = await authenticate(request, env);
 
       if (!authResult.valid) {
@@ -1197,7 +1206,6 @@ export default {
         }));
       }
 
-      const message = await request.json();
       const response = await handleMCP(env, message, authResult.userId);
 
       return withCors(jsonResponse(response));
