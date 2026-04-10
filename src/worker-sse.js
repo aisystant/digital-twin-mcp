@@ -670,9 +670,21 @@ async function authenticate(request, env) {
   }
 
   const token = authHeader.slice(7);
+  // KV key limit is 512 bytes. Ory JWT tokens (~1300 chars) exceed this
+  // and kvGet would throw — skip KV entirely for oversized tokens and
+  // go straight to Ory fallback. Short opaque tokens still use KV.
   const kvKey = `oauth:token:${token}`;
-  console.log("[auth] looking up token in KV:", mask(kvKey, 20));
-  const tokenData = await kvGet(env, kvKey);
+  let tokenData = null;
+  if (kvKey.length <= 512) {
+    console.log("[auth] looking up token in KV:", mask(kvKey, 20));
+    try {
+      tokenData = await kvGet(env, kvKey);
+    } catch (e) {
+      console.error("[auth] KV lookup failed, falling through to Ory:", e.message);
+    }
+  } else {
+    console.log("[auth] token too long for KV (", kvKey.length, "bytes), using Ory fallback");
+  }
 
   if (!tokenData) {
     console.log("[auth] token not in KV, trying Ory fallback...");
