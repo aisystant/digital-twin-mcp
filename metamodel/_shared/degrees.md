@@ -40,13 +40,15 @@ Version: 0.4
   "history": [
     {
       "degree": "DEG.Student",
-      "assigned_at": "2025-11-01",
+      "first_assigned_at": "2025-11-01",
+      "last_confirmed_at": "2025-11-01",
       "assigned_by": "Методсовет МИМ",
-      "basis": "Подтверждён ежедневный слот > 90 дней, WakaTime 12ч/нед",
-      "expires_at": "2028-11-01"
+      "basis": "Подтверждён ежедневный слот > 90 дней, WakaTime 12ч/нед"
     }
   ]
 }
 ```
 
-Поля `assigned_by` и `basis` — обязательные при записи степени.
+Обязательные поля: `degree`, `first_assigned_at`, `last_confirmed_at`, `assigned_by`, `basis`.
+
+При повторном подтверждении обновляется только `last_confirmed_at` и `basis`. Поле `first_assigned_at` не меняется никогда.
