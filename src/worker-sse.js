@@ -337,11 +337,14 @@ export default {
     console.log("[env] ORY_URL:", mask(env.ORY_URL, 20));
     console.log("[env] DATABASE_URL:", mask(env.DATABASE_URL, 15));
 
+    // CORS: Allow-Credentials requires a specific origin (not "*") per W3C CORS spec.
+    // If CORS_ORIGIN is not set, omit Credentials header to remain spec-compliant.
+    const corsOrigin = env.CORS_ORIGIN || "*";
     const cors = {
-      "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",
+      "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Access-Control-Allow-Credentials": "true",
+      ...(corsOrigin !== "*" ? { "Access-Control-Allow-Credentials": "true" } : {}),
     };
 
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
