@@ -404,15 +404,19 @@ export default {
         }), { status: 401, headers: { "Content-Type": "application/json", "WWW-Authenticate": "Bearer error=\"invalid_token\"" } }));
       }
 
-      // Subscription check (DP.SC.112)
-      if (env.DATABASE_URL) {
-        const hasSub = await checkSubscription(env.DATABASE_URL, userId);
-        if (!hasSub) {
-          return withCors(new Response(JSON.stringify({
-            jsonrpc: "2.0", id: message.id ?? null,
-            error: { code: -32001, message: "Forbidden", data: { reason: "subscription_required" } },
-          }), { status: 403, headers: { "Content-Type": "application/json" } }));
-        }
+      // Subscription check (DP.SC.112) — deny by default if DATABASE_URL not configured
+      if (!env.DATABASE_URL) {
+        return withCors(new Response(JSON.stringify({
+          jsonrpc: "2.0", id: message.id ?? null,
+          error: { code: -32001, message: "Forbidden", data: { reason: "subscription_check_unavailable" } },
+        }), { status: 403, headers: { "Content-Type": "application/json" } }));
+      }
+      const hasSub = await checkSubscription(env.DATABASE_URL, userId);
+      if (!hasSub) {
+        return withCors(new Response(JSON.stringify({
+          jsonrpc: "2.0", id: message.id ?? null,
+          error: { code: -32001, message: "Forbidden", data: { reason: "subscription_required" } },
+        }), { status: 403, headers: { "Content-Type": "application/json" } }));
       }
 
       const response = await handleMCP(env, message, userId);
