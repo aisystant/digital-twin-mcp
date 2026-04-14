@@ -1,754 +1,83 @@
 /**
  * Digital Twin MCP Server - HTTP Transport
  * Tools: describe_by_path, read_digital_twin, write_digital_twin
- * Authentication: OAuth2 Authorization Server (MCP spec compliant)
- *   - Delegates user authentication to Ory.sh
- *   - Dynamic client registration (RFC 7591)
- *   - PKCE support (RFC 7636)
+ *
+ * Authentication: JWT verification via Ory JWKS (ADR-IWE-012, B4.21 WP-212).
+ * Each request verifies Bearer token locally — no OAuth2 AS, no KV tokens.
+ * see DP.D.031, ADR-IWE-012
  */
 
 import { neon } from "@neondatabase/serverless";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 
 // ============================================
-// OAuth2 Authorization Server - Crypto Helpers
+// JWT Verification (ADR-IWE-012)
 // ============================================
 
-function generateRandomString(length = 32) {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+const _jwksCache = new Map();
+
+function getJwks(oryUrl) {
+  if (!_jwksCache.has(oryUrl)) {
+    const jwksUrl = new URL(`${oryUrl}/.well-known/jwks.json`);
+    _jwksCache.set(oryUrl, createRemoteJWKSet(jwksUrl));
+  }
+  return _jwksCache.get(oryUrl);
 }
 
-function base64urlEncode(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function sha256(plain) {
-  const data = new TextEncoder().encode(plain);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return base64urlEncode(hash);
+async function verifyJwtLocally(oryUrl, token) {
+  try {
+    const jwks = getJwks(oryUrl);
+    const issuer = oryUrl.replace("/hydra", "") + "/";
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer,
+      algorithms: ["RS256"],
+    });
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================
-// Debug Helpers
+// Subscription Check (DP.SC.112)
+// ============================================
+
+async function checkSubscription(databaseUrl, oryId) {
+  try {
+    const sql = neon(databaseUrl);
+    const [row] = await sql`
+      SELECT EXISTS (
+        SELECT 1 FROM subscription_grants
+        WHERE ory_id = ${oryId}
+          AND (valid_until IS NULL OR valid_until > now())
+          AND revoked_at IS NULL
+      ) AS has_subscription
+    `;
+    return row?.has_subscription === true;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================
+// Helpers
 // ============================================
 
 function mask(value, visibleChars = 6) {
-  if (!value) return `<EMPTY: ${typeof value} ${value}>`;
-  const s = String(value);
-  if (s.length <= visibleChars) return s + "***";
-  return s.substring(0, visibleChars) + "***(" + s.length + " chars)";
-}
-
-function debugHeaders(request) {
-  const headers = {};
-  for (const [key, value] of request.headers.entries()) {
-    if (key.toLowerCase() === "authorization") {
-      headers[key] = mask(value, 20);
-    } else if (key.toLowerCase() === "cookie") {
-      headers[key] = mask(value, 15);
-    } else {
-      headers[key] = value;
-    }
-  }
-  return headers;
-}
-
-// ============================================
-// OAuth2 Authorization Server - KV Storage
-// ============================================
-
-// Key patterns and TTLs:
-//   oauth:client:{id}       - client registration (permanent)
-//   oauth:code:{code}       - auth code + PKCE + user_id (5 min)
-//   oauth:token:{token}     - access token + user_id (1 hour)
-//   oauth:refresh:{token}   - refresh token + user_id + ory_refresh (30 days)
-//   oauth:state:{state}     - pending auth state (10 min)
-
-const TTL = {
-  CODE: 300,          // 5 minutes
-  TOKEN: 3600,        // 1 hour
-  REFRESH: 2592000,   // 30 days
-  STATE: 600,         // 10 minutes
-};
-
-async function kvPut(env, key, value, ttl) {
-  const opts = ttl ? { expirationTtl: ttl } : {};
-  await env.DIGITAL_TWIN_DATA.put(key, JSON.stringify(value), opts);
-}
-
-async function kvGet(env, key) {
-  return await env.DIGITAL_TWIN_DATA.get(key, "json");
-}
-
-async function kvDelete(env, key) {
-  await env.DIGITAL_TWIN_DATA.delete(key);
-}
-
-// ============================================
-// OAuth2 Authorization Server - Endpoints
-// ============================================
-
-function getBaseUrl(env, request) {
-  if (env.RESOURCE_URL) return env.RESOURCE_URL.replace(/\/$/, "");
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}`;
-}
-
-/**
- * GET /.well-known/oauth-authorization-server
- * Authorization Server Metadata (RFC 8414)
- */
-function handleASMetadata(baseUrl) {
-  return {
-    issuer: baseUrl,
-    authorization_endpoint: `${baseUrl}/authorize`,
-    token_endpoint: `${baseUrl}/token`,
-    registration_endpoint: `${baseUrl}/register`,
-    scopes_supported: ["openid", "offline_access"],
-    response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code", "refresh_token"],
-    token_endpoint_auth_methods_supported: ["none"],
-    code_challenge_methods_supported: ["S256"],
-  };
-}
-
-/**
- * POST /register
- * Dynamic Client Registration (RFC 7591)
- */
-async function handleRegister(request, env) {
-  let body;
-  try {
-    body = await request.json();
-    console.log("[register] request body:", JSON.stringify(body));
-  } catch {
-    console.error("[register] FAIL: invalid JSON body");
-    return jsonResponse({ error: "invalid_request", error_description: "Invalid JSON body" }, 400);
-  }
-
-  const clientId = generateRandomString(16);
-  const clientData = {
-    client_id: clientId,
-    client_name: body.client_name || "Unknown Client",
-    redirect_uris: body.redirect_uris || [],
-    grant_types: body.grant_types || ["authorization_code"],
-    response_types: body.response_types || ["code"],
-    token_endpoint_auth_method: body.token_endpoint_auth_method || "none",
-    created_at: Date.now(),
-  };
-
-  console.log("[register] generated client_id:", mask(clientId, 8));
-  console.log("[register] client_data:", JSON.stringify({
-    ...clientData,
-    client_id: mask(clientData.client_id, 8),
-  }));
-
-  if (!clientData.redirect_uris.length) {
-    console.error("[register] FAIL: no redirect_uris");
-    return jsonResponse({
-      error: "invalid_client_metadata",
-      error_description: "redirect_uris is required",
-    }, 400);
-  }
-
-  const kvKey = `oauth:client:${clientId}`;
-  console.log("[register] saving to KV:", kvKey);
-  await kvPut(env, `oauth:client:${clientId}`, clientData);
-  console.log("[register] SUCCESS: client registered:", mask(clientId, 8));
-
-  return jsonResponse({
-    client_id: clientId,
-    client_name: clientData.client_name,
-    redirect_uris: clientData.redirect_uris,
-    grant_types: clientData.grant_types,
-    response_types: clientData.response_types,
-    token_endpoint_auth_method: clientData.token_endpoint_auth_method,
-  }, 201);
-}
-
-/**
- * GET /authorize
- * Stores PKCE state, redirects to Ory /oauth2/auth
- */
-async function handleAuthorize(request, env, baseUrl) {
-  const url = new URL(request.url);
-  const clientId = url.searchParams.get("client_id");
-  const redirectUri = url.searchParams.get("redirect_uri");
-  const state = url.searchParams.get("state");
-  const codeChallenge = url.searchParams.get("code_challenge");
-  const codeChallengeMethod = url.searchParams.get("code_challenge_method");
-  const scope = url.searchParams.get("scope") || "openid offline_access";
-
-  console.log("[authorize] params:", {
-    client_id: mask(clientId, 8),
-    redirect_uri: redirectUri,
-    state: mask(state, 8),
-    code_challenge: mask(codeChallenge, 8),
-    code_challenge_method: codeChallengeMethod,
-    scope,
-  });
-
-  if (!clientId || !redirectUri || !codeChallenge) {
-    console.error("[authorize] MISSING required params:", { hasClientId: !!clientId, hasRedirectUri: !!redirectUri, hasCodeChallenge: !!codeChallenge });
-    return jsonResponse({
-      error: "invalid_request",
-      error_description: "client_id, redirect_uri, and code_challenge are required",
-    }, 400);
-  }
-
-  if (codeChallengeMethod && codeChallengeMethod !== "S256") {
-    console.error("[authorize] unsupported code_challenge_method:", codeChallengeMethod);
-    return jsonResponse({
-      error: "invalid_request",
-      error_description: "Only S256 code_challenge_method is supported",
-    }, 400);
-  }
-
-  // Validate client
-  const kvKey = `oauth:client:${clientId}`;
-  console.log("[authorize] looking up client in KV, key:", kvKey);
-  const client = await kvGet(env, kvKey);
-  console.log("[authorize] client lookup result:", client ? JSON.stringify({
-    client_id: mask(client.client_id, 8),
-    client_name: client.client_name,
-    redirect_uris: client.redirect_uris,
-    token_endpoint_auth_method: client.token_endpoint_auth_method,
-    grant_types: client.grant_types,
-  }) : "<NULL — client not found>");
-
-  if (!client) {
-    console.error("[authorize] FAIL: client_id not found in KV:", mask(clientId, 8));
-    return jsonResponse({ error: "invalid_client", error_description: "Unknown client_id" }, 400);
-  }
-
-  if (!client.redirect_uris.includes(redirectUri)) {
-    console.error("[authorize] FAIL: redirect_uri mismatch. Registered:", client.redirect_uris, "Requested:", redirectUri);
-    return jsonResponse({
-      error: "invalid_request",
-      error_description: "redirect_uri not registered for this client",
-    }, 400);
-  }
-
-  // Generate internal state to link Ory callback back to this request
-  const internalState = generateRandomString(32);
-  const stateData = {
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    client_state: state,
-    code_challenge: codeChallenge,
-    code_challenge_method: codeChallengeMethod || "S256",
-    scope,
-    created_at: Date.now(),
-  };
-  console.log("[authorize] saving state to KV:", mask(internalState, 8), "data:", JSON.stringify({
-    ...stateData,
-    client_id: mask(stateData.client_id, 8),
-    code_challenge: mask(stateData.code_challenge, 8),
-  }));
-  await kvPut(env, `oauth:state:${internalState}`, stateData, TTL.STATE);
-
-  // Redirect to Ory authorization endpoint
-  const oryAuthUrl = new URL(`${env.ORY_PROJECT_URL}/oauth2/auth`);
-  oryAuthUrl.searchParams.set("client_id", env.ORY_CLIENT_ID);
-  oryAuthUrl.searchParams.set("response_type", "code");
-  oryAuthUrl.searchParams.set("redirect_uri", `${baseUrl}/callback`);
-  oryAuthUrl.searchParams.set("scope", "openid offline_access");
-  oryAuthUrl.searchParams.set("state", internalState);
-
-  console.log("[authorize] redirecting to Ory:", oryAuthUrl.toString());
-  console.log("[authorize] Ory params: client_id:", mask(env.ORY_CLIENT_ID, 8), "redirect_uri:", `${baseUrl}/callback`);
-
-  return new Response(null, {
-    status: 302,
-    headers: { Location: oryAuthUrl.toString() },
-  });
-}
-
-/**
- * GET /callback
- * Handles Ory redirect, exchanges Ory code for token, issues MCP auth code
- */
-async function handleCallback(request, env, baseUrl) {
-  const url = new URL(request.url);
-  const oryCode = url.searchParams.get("code");
-  const internalState = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  console.log("[callback] all query params:", Object.fromEntries(url.searchParams.entries()));
-  console.log("[callback] received:", {
-    oryCode: mask(oryCode, 8),
-    internalState: mask(internalState, 8),
-    error,
-    error_description: url.searchParams.get("error_description"),
-    baseUrl,
-  });
-
-  if (error) {
-    const errorDesc = url.searchParams.get("error_description") || "Authorization denied";
-    console.error("[callback] Ory returned error:", error, "description:", errorDesc);
-    return new Response(`Authorization failed: ${errorDesc}`, { status: 400 });
-  }
-
-  if (!oryCode || !internalState) {
-    console.error("[callback] MISSING params: hasCode:", !!oryCode, "hasState:", !!internalState);
-    return new Response("Missing code or state parameter", { status: 400 });
-  }
-
-  // Retrieve pending auth state
-  const stateKey = `oauth:state:${internalState}`;
-  console.log("[callback] looking up state in KV:", mask(stateKey, 20));
-  const pendingState = await kvGet(env, stateKey);
-  if (!pendingState) {
-    console.error("[callback] FAIL: state not found in KV. Key:", mask(stateKey, 20));
-    return new Response("Invalid or expired state", { status: 400 });
-  }
-
-  console.log("[callback] pending state found:", JSON.stringify({
-    client_id: mask(pendingState.client_id, 8),
-    redirect_uri: pendingState.redirect_uri,
-    code_challenge: mask(pendingState.code_challenge, 8),
-    code_challenge_method: pendingState.code_challenge_method,
-    scope: pendingState.scope,
-    created_at: pendingState.created_at,
-    age_seconds: Math.round((Date.now() - pendingState.created_at) / 1000),
-  }));
-
-  // Clean up state
-  await kvDelete(env, stateKey);
-
-  // Exchange Ory code for Ory token
-  const oryCallbackUri = `${baseUrl}/callback`;
-  const oryTokenUrl = `${env.ORY_PROJECT_URL}/oauth2/token`;
-  const basicAuthCredentials = `${env.ORY_CLIENT_ID}:${env.ORY_CLIENT_SECRET}`;
-  const basicAuthHeader = "Basic " + btoa(basicAuthCredentials);
-
-  const tokenRequestBody = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: oryCode,
-    redirect_uri: oryCallbackUri,
-  });
-
-  console.log("[callback] === Ory Token Exchange Request ===");
-  console.log("[callback] POST URL:", oryTokenUrl);
-  console.log("[callback] Authorization header (Basic):", mask(basicAuthHeader, 15));
-  console.log("[callback] Basic auth decoded parts:");
-  console.log("[callback]   client_id:", mask(env.ORY_CLIENT_ID, 8));
-  console.log("[callback]   client_secret:", mask(env.ORY_CLIENT_SECRET, 4));
-  console.log("[callback]   client_secret length:", env.ORY_CLIENT_SECRET ? env.ORY_CLIENT_SECRET.length : "UNDEFINED");
-  console.log("[callback]   client_secret type:", typeof env.ORY_CLIENT_SECRET);
-  console.log("[callback] Body params:");
-  console.log("[callback]   grant_type: authorization_code");
-  console.log("[callback]   code:", mask(oryCode, 8));
-  console.log("[callback]   redirect_uri:", oryCallbackUri);
-  console.log("[callback] Full body string:", tokenRequestBody.toString().substring(0, 200));
-
-  let oryTokenData;
-  try {
-    const tokenResponse = await fetch(oryTokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": basicAuthHeader,
-      },
-      body: tokenRequestBody.toString(),
-    });
-
-    console.log("[callback] === Ory Token Exchange Response ===");
-    console.log("[callback] status:", tokenResponse.status, tokenResponse.statusText);
-    console.log("[callback] response headers:", JSON.stringify(Object.fromEntries(tokenResponse.headers.entries())));
-
-    if (!tokenResponse.ok) {
-      const errBody = await tokenResponse.text();
-      console.error("[callback] FAIL: Ory token exchange failed!");
-      console.error("[callback] status:", tokenResponse.status);
-      console.error("[callback] response body:", errBody);
-      console.error("[callback] === Debug checklist ===");
-      console.error("[callback] 1. Is ORY_CLIENT_ID correct?", mask(env.ORY_CLIENT_ID, 8));
-      console.error("[callback] 2. Is ORY_CLIENT_SECRET set and non-empty?", !!env.ORY_CLIENT_SECRET, "length:", env.ORY_CLIENT_SECRET?.length);
-      console.error("[callback] 3. Does redirect_uri match Ory config?", oryCallbackUri);
-      console.error("[callback] 4. Is Ory client configured for client_secret_basic auth?");
-      console.error("[callback] 5. Is the Ory client configured for authorization_code grant?");
-      return new Response(`Failed to exchange authorization code: ${errBody}`, { status: 502 });
-    }
-
-    oryTokenData = await tokenResponse.json();
-    console.log("[callback] Ory token exchange SUCCESS!");
-    console.log("[callback] response keys:", Object.keys(oryTokenData));
-    console.log("[callback] has id_token:", !!oryTokenData.id_token);
-    console.log("[callback] has access_token:", !!oryTokenData.access_token, mask(oryTokenData.access_token, 8));
-    console.log("[callback] has refresh_token:", !!oryTokenData.refresh_token);
-    console.log("[callback] token_type:", oryTokenData.token_type);
-    console.log("[callback] expires_in:", oryTokenData.expires_in);
-    console.log("[callback] scope:", oryTokenData.scope);
-  } catch (err) {
-    console.error("[callback] Ory token exchange EXCEPTION:", err.message, err.stack);
-    return new Response("Failed to exchange authorization code", { status: 502 });
-  }
-
-  // Extract user identity from Ory ID token or access token
-  let userId;
-  if (oryTokenData.id_token) {
-    // Decode JWT payload (we trust Ory, no signature verification needed for sub extraction)
-    try {
-      const parts = oryTokenData.id_token.split(".");
-      console.log("[callback] id_token parts count:", parts.length);
-      const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-      console.log("[callback] id_token payload keys:", Object.keys(payload));
-      console.log("[callback] id_token payload.sub:", mask(payload.sub, 8));
-      console.log("[callback] id_token payload.iss:", payload.iss);
-      console.log("[callback] id_token payload.aud:", payload.aud);
-      userId = payload.sub;
-    } catch (e) {
-      console.error("[callback] Failed to decode Ory id_token:", e.message);
-    }
-  }
-
-  if (!userId) {
-    // Fallback: use userinfo endpoint
-    console.log("[callback] No userId from id_token, trying userinfo endpoint");
-    try {
-      const userinfoUrl = `${env.ORY_PROJECT_URL}/userinfo`;
-      console.log("[callback] fetching userinfo:", userinfoUrl);
-      const userinfoResp = await fetch(userinfoUrl, {
-        headers: { Authorization: `Bearer ${oryTokenData.access_token}` },
-      });
-      console.log("[callback] userinfo response status:", userinfoResp.status);
-      if (userinfoResp.ok) {
-        const userinfo = await userinfoResp.json();
-        console.log("[callback] userinfo keys:", Object.keys(userinfo));
-        userId = userinfo.sub;
-      } else {
-        const errText = await userinfoResp.text();
-        console.error("[callback] userinfo failed:", errText);
-      }
-    } catch (e) {
-      console.error("[callback] Failed to fetch userinfo from Ory:", e.message);
-    }
-  }
-
-  if (!userId) {
-    console.error("[callback] FAIL: could not extract userId from any source");
-    return new Response("Failed to identify user", { status: 502 });
-  }
-
-  console.log("[callback] userId extracted:", mask(userId, 8));
-
-  // Generate MCP authorization code
-  const mcpCode = generateRandomString(32);
-  await kvPut(env, `oauth:code:${mcpCode}`, {
-    client_id: pendingState.client_id,
-    redirect_uri: pendingState.redirect_uri,
-    code_challenge: pendingState.code_challenge,
-    code_challenge_method: pendingState.code_challenge_method,
-    user_id: userId,
-    ory_refresh_token: oryTokenData.refresh_token || null,
-    created_at: Date.now(),
-  }, TTL.CODE);
-
-  // Redirect back to client with MCP auth code
-  const redirectUrl = new URL(pendingState.redirect_uri);
-  redirectUrl.searchParams.set("code", mcpCode);
-  if (pendingState.client_state) {
-    redirectUrl.searchParams.set("state", pendingState.client_state);
-  }
-
-  console.log("[callback] redirecting to client:", redirectUrl.toString().substring(0, 100));
-
-  return new Response(null, {
-    status: 302,
-    headers: { Location: redirectUrl.toString() },
-  });
-}
-
-/**
- * POST /token
- * Token exchange (authorization_code + PKCE) and refresh_token grant
- */
-async function handleToken(request, env) {
-  // Check for client_secret_basic auth from MCP client
-  const authHeader = request.headers.get("Authorization");
-  let basicClientId = null;
-  let basicClientSecret = null;
-  if (authHeader && authHeader.startsWith("Basic ")) {
-    try {
-      const decoded = atob(authHeader.slice(6));
-      const colonIdx = decoded.indexOf(":");
-      basicClientId = decoded.substring(0, colonIdx);
-      basicClientSecret = decoded.substring(colonIdx + 1);
-      console.log("[token] client_secret_basic auth detected:");
-      console.log("[token]   basic client_id:", mask(basicClientId, 8));
-      console.log("[token]   basic client_secret:", mask(basicClientSecret, 4));
-    } catch (e) {
-      console.error("[token] Failed to decode Basic auth header:", e.message);
-    }
-  } else {
-    console.log("[token] No Basic auth header. Auth header:", mask(authHeader, 10));
-  }
-
-  let body;
-  try {
-    const text = await request.text();
-    console.log("[token] raw body (first 300 chars):", text.substring(0, 300));
-    console.log("[token] Content-Type:", request.headers.get("Content-Type"));
-    body = Object.fromEntries(new URLSearchParams(text));
-  } catch (err) {
-    console.error("[token] body parse error:", err.message);
-    return jsonResponse({ error: "invalid_request", error_description: "Invalid request body" }, 400);
-  }
-
-  // If client_id came via Basic auth, use it
-  if (basicClientId && !body.client_id) {
-    console.log("[token] using client_id from Basic auth header");
-    body.client_id = basicClientId;
-  }
-
-  const grantType = body.grant_type;
-  console.log("[token] === Parsed Token Request ===");
-  console.log("[token] grant_type:", grantType);
-  console.log("[token] client_id:", mask(body.client_id, 8));
-  console.log("[token] code:", mask(body.code, 8));
-  console.log("[token] code_verifier:", mask(body.code_verifier, 8));
-  console.log("[token] redirect_uri:", body.redirect_uri);
-  console.log("[token] refresh_token:", mask(body.refresh_token, 8));
-  console.log("[token] all body keys:", Object.keys(body));
-
-  if (grantType === "authorization_code") {
-    return handleAuthorizationCodeGrant(body, env);
-  } else if (grantType === "refresh_token") {
-    return handleRefreshTokenGrant(body, env);
-  } else {
-    return jsonResponse({ error: "unsupported_grant_type" }, 400);
-  }
-}
-
-async function handleAuthorizationCodeGrant(body, env) {
-  const { code, code_verifier, client_id, redirect_uri } = body;
-
-  if (!code || !code_verifier || !client_id) {
-    console.error("[token] missing params:", { hasCode: !!code, hasVerifier: !!code_verifier, hasClientId: !!client_id });
-    return jsonResponse({
-      error: "invalid_request",
-      error_description: "code, code_verifier, and client_id are required",
-    }, 400);
-  }
-
-  // Retrieve and validate auth code
-  const codeData = await kvGet(env, `oauth:code:${code}`);
-  if (!codeData) {
-    console.error("[token] code not found in KV:", code.substring(0, 8) + "...");
-    return jsonResponse({ error: "invalid_grant", error_description: "Invalid or expired code" }, 400);
-  }
-
-  console.log("[token] code found, client_id match:", codeData.client_id === client_id, "user_id:", codeData.user_id);
-
-  // Delete code (single use)
-  await kvDelete(env, `oauth:code:${code}`);
-
-  // Validate client_id
-  if (codeData.client_id !== client_id) {
-    console.error("[token] client_id mismatch:", codeData.client_id, "vs", client_id);
-    return jsonResponse({ error: "invalid_grant", error_description: "client_id mismatch" }, 400);
-  }
-
-  // Validate redirect_uri if provided
-  if (redirect_uri && codeData.redirect_uri !== redirect_uri) {
-    console.error("[token] redirect_uri mismatch:", codeData.redirect_uri, "vs", redirect_uri);
-    return jsonResponse({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, 400);
-  }
-
-  // Validate PKCE
-  const computedChallenge = await sha256(code_verifier);
-  if (computedChallenge !== codeData.code_challenge) {
-    console.error("[token] PKCE failed. computed:", computedChallenge, "expected:", codeData.code_challenge);
-    return jsonResponse({ error: "invalid_grant", error_description: "PKCE verification failed" }, 400);
-  }
-
-  console.log("[token] PKCE verified, issuing tokens for user:", codeData.user_id);
-
-  // Issue MCP tokens
-  const accessToken = generateRandomString(32);
-  const refreshToken = generateRandomString(32);
-
-  await kvPut(env, `oauth:token:${accessToken}`, {
-    user_id: codeData.user_id,
-    client_id,
-    scope: "openid offline_access",
-    created_at: Date.now(),
-  }, TTL.TOKEN);
-
-  await kvPut(env, `oauth:refresh:${refreshToken}`, {
-    user_id: codeData.user_id,
-    client_id,
-    ory_refresh_token: codeData.ory_refresh_token,
-    scope: "openid offline_access",
-    created_at: Date.now(),
-  }, TTL.REFRESH);
-
-  return jsonResponse({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: TTL.TOKEN,
-    refresh_token: refreshToken,
-    scope: "openid offline_access",
-  });
-}
-
-async function handleRefreshTokenGrant(body, env) {
-  const { refresh_token, client_id } = body;
-
-  if (!refresh_token || !client_id) {
-    return jsonResponse({
-      error: "invalid_request",
-      error_description: "refresh_token and client_id are required",
-    }, 400);
-  }
-
-  const refreshData = await kvGet(env, `oauth:refresh:${refresh_token}`);
-  if (!refreshData) {
-    return jsonResponse({ error: "invalid_grant", error_description: "Invalid or expired refresh token" }, 400);
-  }
-
-  if (refreshData.client_id !== client_id) {
-    return jsonResponse({ error: "invalid_grant", error_description: "client_id mismatch" }, 400);
-  }
-
-  // Delete old refresh token (rotation)
-  await kvDelete(env, `oauth:refresh:${refresh_token}`);
-
-  // Issue new tokens
-  const newAccessToken = generateRandomString(32);
-  const newRefreshToken = generateRandomString(32);
-
-  await kvPut(env, `oauth:token:${newAccessToken}`, {
-    user_id: refreshData.user_id,
-    client_id,
-    scope: refreshData.scope || "openid offline_access",
-    created_at: Date.now(),
-  }, TTL.TOKEN);
-
-  await kvPut(env, `oauth:refresh:${newRefreshToken}`, {
-    user_id: refreshData.user_id,
-    client_id,
-    ory_refresh_token: refreshData.ory_refresh_token,
-    scope: refreshData.scope || "openid offline_access",
-    created_at: Date.now(),
-  }, TTL.REFRESH);
-
-  return jsonResponse({
-    access_token: newAccessToken,
-    token_type: "Bearer",
-    expires_in: TTL.TOKEN,
-    refresh_token: newRefreshToken,
-    scope: refreshData.scope || "openid offline_access",
-  });
-}
-
-// ============================================
-// Authentication - KV Token Lookup
-// ============================================
-
-async function authenticate(request, env) {
-  console.log("[auth] authenticating request...");
-
-  // If no DATABASE_URL configured, allow all (dev mode)
-  if (!env?.DATABASE_URL) {
-    console.log("[auth] no DATABASE_URL → dev mode, allowing all");
-    return { valid: true, userId: null };
-  }
-
-  const authHeader = request.headers.get("Authorization");
-  console.log("[auth] Authorization header:", mask(authHeader, 15));
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.error("[auth] FAIL: missing or invalid Bearer token");
-    return { valid: false, error: "missing_token" };
-  }
-
-  const token = authHeader.slice(7);
-  // KV key limit is 512 bytes. Ory JWT tokens (~1300 chars) exceed this
-  // and kvGet would throw — skip KV entirely for oversized tokens and
-  // go straight to Ory fallback. Short opaque tokens still use KV.
-  const kvKey = `oauth:token:${token}`;
-  let tokenData = null;
-  if (kvKey.length <= 512) {
-    console.log("[auth] looking up token in KV:", mask(kvKey, 20));
-    try {
-      tokenData = await kvGet(env, kvKey);
-    } catch (e) {
-      console.error("[auth] KV lookup failed, falling through to Ory:", e.message);
-    }
-  } else {
-    console.log("[auth] token too long for KV (", kvKey.length, "bytes), using Ory fallback");
-  }
-
-  if (!tokenData) {
-    console.log("[auth] token not in KV, trying Ory fallback...");
-
-    // Fallback: validate via Ory userinfo (for tokens from Gateway proxy)
-    if (env?.ORY_PROJECT_URL) {
-      try {
-        const userinfoUrl = `${env.ORY_PROJECT_URL}/userinfo`;
-        const oryResp = await fetch(userinfoUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (oryResp.ok) {
-          const data = await oryResp.json();
-          const userId = data.sub || data.user_id;
-          if (userId) {
-            console.log("[auth] SUCCESS via Ory fallback: user_id:", mask(userId, 8));
-            return { valid: true, userId };
-          }
-        }
-      } catch (e) {
-        console.error("[auth] Ory fallback failed:", e.message);
-      }
-    }
-
-    console.error("[auth] FAIL: token not found in KV and Ory fallback failed:", mask(token, 8));
-    return { valid: false, error: "invalid_token" };
-  }
-
-  console.log("[auth] SUCCESS: user_id:", mask(tokenData.user_id, 8), "client_id:", mask(tokenData.client_id, 8));
-  return { valid: true, userId: tokenData.user_id };
-}
-
-function buildWwwAuthenticate(baseUrl, error = null) {
-  let value = `Bearer resource="${baseUrl}"`;
-  if (error) {
-    value += `, error="${error}"`;
-  }
-  return value;
+  if (!value) return "(not set)";
+  const str = String(value);
+  if (str.length <= visibleChars) return str;
+  return str.substring(0, visibleChars) + "...";
 }
 
 // ============================================
 // Twin Data Storage
 // ============================================
 
-// Auto-migration: creates table on first use per isolate
-let _migrated = false;
-async function ensureTable(sql) {
-  if (_migrated) return;
-  await sql`
-    CREATE TABLE IF NOT EXISTS digital_twins (
-      user_id TEXT PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-  _migrated = true;
-}
-
 async function getTwinData(env, userId) {
   if (!env.DATABASE_URL) return {};
   const sql = neon(env.DATABASE_URL);
-  await ensureTable(sql);
   const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${userId}`;
   return rows.length ? rows[0].data : {};
 }
@@ -756,7 +85,6 @@ async function getTwinData(env, userId) {
 async function saveTwinData(env, userId, data) {
   if (!env.DATABASE_URL) return false;
   const sql = neon(env.DATABASE_URL);
-  await ensureTable(sql);
   await sql`
     INSERT INTO digital_twins (user_id, data, updated_at)
     VALUES (${userId}, ${JSON.stringify(data)}, NOW())
@@ -790,10 +118,6 @@ function setByPath(obj, pathStr, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-/**
- * Recursively parse string values that contain JSON objects/arrays.
- * Fixes data where structured values were stored as serialized strings.
- */
 function deepParseJSONStrings(obj) {
   if (typeof obj !== "object" || obj === null) return obj;
   if (Array.isArray(obj)) return obj.map(deepParseJSONStrings);
@@ -816,61 +140,38 @@ function deepParseJSONStrings(obj) {
 
 function parseMdFile(content, filename) {
   const lines = content.split("\n");
-  const result = {
-    name: filename,
-    type: "unknown",
-    format: "unknown",
-    description: "",
-  };
-
+  const result = { name: filename, type: "unknown", format: "unknown", description: "" };
   for (const line of lines) {
-    if (line.startsWith("**Name:**")) {
-      result.name = line.replace("**Name:**", "").trim();
-    }
-    if (line.startsWith("**Type:**")) {
-      result.type = line.replace("**Type:**", "").trim();
-    }
-    if (line.startsWith("**Format:**")) {
-      result.format = line.replace("**Format:**", "").trim();
-    }
-    if (line.startsWith("**Description:**")) {
-      result.description = line.replace("**Description:**", "").trim();
-    }
+    if (line.startsWith("**Name:**")) result.name = line.replace("**Name:**", "").trim();
+    if (line.startsWith("**Type:**")) result.type = line.replace("**Type:**", "").trim();
+    if (line.startsWith("**Format:**")) result.format = line.replace("**Format:**", "").trim();
+    if (line.startsWith("**Description:**")) result.description = line.replace("**Description:**", "").trim();
   }
-
   return result;
 }
 
 // ============ Tools ============
 
 function describeByPath(pathArg) {
-  // Root: list categories + shared documents
   if (!pathArg || pathArg === "/" || pathArg === ".") {
     const results = [];
-
     for (const [name] of Object.entries(METAMODEL.rootFiles)) {
       results.push(`${name}:document:Shared metamodel document`);
     }
-
     for (const cat of METAMODEL.categories) {
       const firstLine = cat.description.split("\n").find((l) => l.startsWith("# "));
       const desc = firstLine ? firstLine.replace("# ", "").trim() : cat.name;
       const count = cat.subgroups.reduce((sum, s) => sum + Object.keys(s.indicators).length, 0);
       results.push(`${cat.name}:category:${desc} (${count} indicators)`);
     }
-
     return results.join("\n");
   }
 
   const normalized = normalizePath(pathArg);
   const parts = normalized.split(".");
 
-  // 1 segment: rootFile or category
   if (parts.length === 1) {
-    if (METAMODEL.rootFiles[parts[0]]) {
-      return METAMODEL.rootFiles[parts[0]];
-    }
-
+    if (METAMODEL.rootFiles[parts[0]]) return METAMODEL.rootFiles[parts[0]];
     const category = METAMODEL.categories.find(c => c.name === parts[0]);
     if (category) {
       const results = [];
@@ -881,89 +182,56 @@ function describeByPath(pathArg) {
       }
       return category.description + "\n---\n" + results.join("\n");
     }
-
     return `Error: Path not found: ${pathArg}`;
   }
 
-  // 2 segments: category/subgroup → list indicators
   if (parts.length === 2) {
     const groupPath = `${parts[0]}/${parts[1]}`;
     const group = getGroup(groupPath);
-    if (!group) {
-      return `Error: Subgroup not found: ${pathArg}`;
-    }
-
+    if (!group) return `Error: Subgroup not found: ${pathArg}`;
     const results = [];
     for (const [name, content] of Object.entries(group.indicators)) {
       const { type, format, description } = parseMdFile(content, name);
       results.push(`${name}:${type}/${format}:${description}`);
     }
-
-    if (results.length === 0) {
-      return `Subgroup '${pathArg}' exists but has no indicators yet.`;
-    }
-
+    if (results.length === 0) return `Subgroup '${pathArg}' exists but has no indicators yet.`;
     return results.join("\n");
   }
 
-  // 3 segments: category/subgroup/indicator → return indicator content
   const groupPath = `${parts[0]}/${parts[1]}`;
   const indicatorName = parts[2];
   const indicatorContent = getIndicator(groupPath, indicatorName);
-  if (!indicatorContent) {
-    return `Error: Indicator not found: ${pathArg}`;
-  }
-
+  if (!indicatorContent) return `Error: Indicator not found: ${pathArg}`;
   return indicatorContent;
 }
 
 async function readDigitalTwin(env, pathArg, userId) {
   const twinData = await getTwinData(env, userId);
-
-  if (!pathArg || pathArg === "/" || pathArg === ".") {
-    return deepParseJSONStrings(twinData);
-  }
-
+  if (!pathArg || pathArg === "/" || pathArg === ".") return deepParseJSONStrings(twinData);
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
-
-  // Parse string values that are actually JSON objects/arrays
   if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
     try { return JSON.parse(value); } catch {}
   }
-  if (typeof value === "object" && value !== null) {
-    return deepParseJSONStrings(value);
-  }
+  if (typeof value === "object" && value !== null) return deepParseJSONStrings(value);
   return value;
 }
 
 async function writeDigitalTwin(env, pathArg, value, userId) {
-  // Access control: check category write permissions
   const parts = normalizePath(pathArg).split(".");
   const category = parts[0];
   const access = METAMODEL.accessControl?.[category];
   if (access && !access.user?.includes("w")) {
-    return {
-      error: `Write access denied. Category '${category}' is read-only for users.`,
-    };
+    return { error: `Write access denied. Category '${category}' is read-only for users.` };
   }
-
-  // Parse JSON strings to prevent storing stringified objects as strings
   let parsedValue = value;
   if (typeof value === "string") {
     try { parsedValue = JSON.parse(value); } catch {}
   }
-
   const twinData = await getTwinData(env, userId);
   setByPath(twinData, pathArg, parsedValue);
   const saved = await saveTwinData(env, userId, twinData);
-  return {
-    success: true,
-    path: pathArg,
-    value: parsedValue,
-    user: userId || "anonymous",
-    persisted: saved,
-  };
+  return { success: true, path: pathArg, value: parsedValue, user: userId || "anonymous", persisted: saved };
 }
 
 // ============ MCP Protocol ============
@@ -971,15 +239,13 @@ async function writeDigitalTwin(env, pathArg, value, userId) {
 const tools = [
   {
     name: "describe_by_path",
-    description:
-      "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all categories.",
+    description: "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all categories.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description:
-            "Path in metamodel. Examples: '/' (root), '1_declarative', '1_declarative/1_2_goals', '1_declarative/1_2_goals/09_Цели обучения'",
+          description: "Path in metamodel. Examples: '/' (root), '1_declarative', '1_declarative/1_2_goals', '1_declarative/1_2_goals/09_Цели обучения'",
         },
       },
     },
@@ -990,10 +256,7 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
-        path: {
-          type: "string",
-          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_3_selfeval')",
-        },
+        path: { type: "string", description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения')" },
       },
       required: ["path"],
     },
@@ -1004,13 +267,8 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
-        path: {
-          type: "string",
-          description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения', '1_declarative/1_4_context/01_Текущие проблемы')",
-        },
-        data: {
-          description: "Data to write (any JSON value)",
-        },
+        path: { type: "string", description: "Path to data" },
+        data: { description: "Data to write (any JSON value)" },
       },
       required: ["path", "data"],
     },
@@ -1019,58 +277,42 @@ const tools = [
 
 async function callTool(env, name, args, userId) {
   switch (name) {
-    case "describe_by_path":
-      return describeByPath(args.path);
-    case "read_digital_twin":
-      return await readDigitalTwin(env, args.path, userId);
-    case "write_digital_twin":
-      return await writeDigitalTwin(env, args.path, args.data, userId);
-    default:
-      return { error: `Unknown tool: ${name}` };
+    case "describe_by_path": return describeByPath(args.path);
+    case "read_digital_twin": return await readDigitalTwin(env, args.path, userId);
+    case "write_digital_twin": return await writeDigitalTwin(env, args.path, args.data, userId);
+    default: return { error: `Unknown tool: ${name}` };
   }
 }
 
 async function handleMCP(env, message, userId) {
   const { jsonrpc, id, method, params } = message;
-
-  if (jsonrpc !== "2.0") {
-    return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
-  }
+  if (jsonrpc !== "2.0") return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
 
   switch (method) {
     case "initialize":
       return {
-        jsonrpc: "2.0",
-        id,
+        jsonrpc: "2.0", id,
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "2.0.0" },
+          serverInfo: { name: "digital-twin-mcp", version: "3.0.0" },
         },
       };
-
     case "tools/list":
       return { jsonrpc: "2.0", id, result: { tools } };
-
     case "tools/call": {
       const { name, arguments: args } = params;
       const result = await callTool(env, name, args || {}, userId);
-
       if (result?.error && typeof result.error === "string") {
         return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
       }
-
       return {
-        jsonrpc: "2.0",
-        id,
+        jsonrpc: "2.0", id,
         result: {
-          content: [
-            { type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) },
-          ],
+          content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }],
         },
       };
     }
-
     default:
       return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
   }
@@ -1090,18 +332,10 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const baseUrl = getBaseUrl(env, request);
 
     console.log(`\n========== [${request.method}] ${url.pathname} ==========`);
-    console.log("[req] full URL:", url.toString());
-    console.log("[req] baseUrl:", baseUrl);
-    console.log("[req] headers:", JSON.stringify(debugHeaders(request)));
-    console.log("[env] ORY_PROJECT_URL:", mask(env.ORY_PROJECT_URL, 20));
-    console.log("[env] ORY_CLIENT_ID:", mask(env.ORY_CLIENT_ID, 8));
-    console.log("[env] ORY_CLIENT_SECRET:", mask(env.ORY_CLIENT_SECRET, 4));
-    console.log("[env] RESOURCE_URL:", mask(env.RESOURCE_URL, 30));
+    console.log("[env] ORY_URL:", mask(env.ORY_URL, 20));
     console.log("[env] DATABASE_URL:", mask(env.DATABASE_URL, 15));
-    console.log("[env] KV bound:", !!env.DIGITAL_TWIN_DATA);
 
     const cors = {
       "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",
@@ -1110,131 +344,81 @@ export default {
       "Access-Control-Allow-Credentials": "true",
     };
 
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: cors });
-    }
+    if (request.method === "OPTIONS") return new Response(null, { headers: cors });
 
-    // Helper to add CORS headers to any response
     function withCors(response) {
       const newHeaders = new Headers(response.headers);
-      for (const [k, v] of Object.entries(cors)) {
-        newHeaders.set(k, v);
-      }
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: newHeaders,
-      });
+      for (const [k, v] of Object.entries(cors)) newHeaders.set(k, v);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: newHeaders });
     }
 
-    // ======= OAuth2 Authorization Server Metadata (RFC 8414) =======
-    if (url.pathname === "/.well-known/oauth-authorization-server") {
-      return withCors(jsonResponse(handleASMetadata(baseUrl)));
-    }
-
-    // ======= OAuth2 Protected Resource Metadata (RFC 9728) =======
-    if (url.pathname === "/.well-known/oauth-protected-resource") {
-      return withCors(jsonResponse({
-        resource: baseUrl,
-        authorization_servers: [baseUrl],
-        scopes_supported: ["openid", "offline_access"],
-        bearer_methods_supported: ["header"],
-        resource_documentation: `${baseUrl}/docs`,
-      }));
-    }
-
-    // ======= Dynamic Client Registration (RFC 7591) =======
-    if (url.pathname === "/register" && request.method === "POST") {
-      return withCors(await handleRegister(request, env));
-    }
-
-    // ======= Authorization Endpoint =======
-    if (url.pathname === "/authorize" && request.method === "GET") {
-      return await handleAuthorize(request, env, baseUrl);
-    }
-
-    // ======= Ory Callback =======
-    if (url.pathname === "/callback" && request.method === "GET") {
-      return await handleCallback(request, env, baseUrl);
-    }
-
-    // ======= Token Endpoint =======
-    if (url.pathname === "/token" && request.method === "POST") {
-      return withCors(await handleToken(request, env));
-    }
-
-    // ======= Health check =======
+    // Health check
     if (url.pathname === "/health") {
-      return withCors(jsonResponse({
-        status: "ok",
-        auth: "oauth2-as",
-      }));
+      return withCors(jsonResponse({ status: "ok", auth: "jwt-jwks" }));
     }
 
-    // ======= MCP endpoint =======
+    // MCP endpoint
     if (url.pathname === "/mcp" || url.pathname === "/") {
       if (request.method !== "POST") {
         return withCors(jsonResponse({
           name: "digital-twin-mcp",
-          version: "2.0.0",
-          description: "Digital Twin MCP Server with OAuth2 Authorization Server",
-          auth: {
-            type: "oauth2",
-            metadata_url: `${baseUrl}/.well-known/oauth-authorization-server`,
-          },
+          version: "3.0.0",
+          description: "Digital Twin MCP Server — JWT auth via Ory JWKS",
           storage: env?.DATABASE_URL ? "persistent" : "ephemeral",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
         }));
       }
 
-      // POST - parse message first to check method
       const message = await request.json();
 
-      // tools/list is public (no auth required) — allows Gateway to discover tools
+      // tools/list is public — allows Gateway to discover tools
       if (message.method === "tools/list") {
         const response = await handleMCP(env, message, null);
         return withCors(jsonResponse(response));
       }
 
-      // All other methods require authentication
-      const authResult = await authenticate(request, env);
-
-      if (!authResult.valid) {
+      // All other methods require authentication (ADR-IWE-012)
+      const authHeader = request.headers.get("Authorization");
+      if (!authHeader?.startsWith("Bearer ")) {
         return withCors(new Response(JSON.stringify({
-          jsonrpc: "2.0",
-          id: null,
-          error: {
-            code: -32001,
-            message: "Unauthorized",
-            data: { reason: authResult.error },
-          },
-        }, null, 2), {
-          status: 401,
-          headers: {
-            "Content-Type": "application/json",
-            "WWW-Authenticate": buildWwwAuthenticate(baseUrl, authResult.error),
-          },
-        }));
+          jsonrpc: "2.0", id: message.id ?? null,
+          error: { code: -32001, message: "Unauthorized", data: { reason: "missing_token" } },
+        }), { status: 401, headers: { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" } }));
       }
 
-      const response = await handleMCP(env, message, authResult.userId);
+      if (!env.ORY_URL) {
+        console.error("[auth] ORY_URL not configured");
+        return withCors(new Response(JSON.stringify({
+          jsonrpc: "2.0", id: message.id ?? null,
+          error: { code: -32001, message: "Unauthorized", data: { reason: "auth_not_configured" } },
+        }), { status: 401, headers: { "Content-Type": "application/json" } }));
+      }
 
+      const token = authHeader.slice(7);
+      const userId = await verifyJwtLocally(env.ORY_URL, token);
+
+      if (!userId) {
+        return withCors(new Response(JSON.stringify({
+          jsonrpc: "2.0", id: message.id ?? null,
+          error: { code: -32001, message: "Unauthorized", data: { reason: "invalid_token" } },
+        }), { status: 401, headers: { "Content-Type": "application/json", "WWW-Authenticate": "Bearer error=\"invalid_token\"" } }));
+      }
+
+      // Subscription check (DP.SC.112)
+      if (env.DATABASE_URL) {
+        const hasSub = await checkSubscription(env.DATABASE_URL, userId);
+        if (!hasSub) {
+          return withCors(new Response(JSON.stringify({
+            jsonrpc: "2.0", id: message.id ?? null,
+            error: { code: -32001, message: "Forbidden", data: { reason: "subscription_required" } },
+          }), { status: 403, headers: { "Content-Type": "application/json" } }));
+        }
+      }
+
+      const response = await handleMCP(env, message, userId);
       return withCors(jsonResponse(response));
     }
 
-    return withCors(jsonResponse({
-      error: "Not found",
-      endpoints: [
-        "/mcp",
-        "/.well-known/oauth-authorization-server",
-        "/.well-known/oauth-protected-resource",
-        "/register",
-        "/authorize",
-        "/callback",
-        "/token",
-        "/health",
-      ],
-    }, 404));
+    return withCors(jsonResponse({ error: "Not found", endpoints: ["/mcp", "/health"] }, 404));
   },
 };

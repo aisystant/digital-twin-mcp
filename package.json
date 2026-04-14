@@ -21,7 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
-    "@neondatabase/serverless": "^1.0.2"
+    "@neondatabase/serverless": "^1.0.2",
+    "jose": "^6.2.2"
   },
   "devDependencies": {
     "wrangler": "^3.78.0"

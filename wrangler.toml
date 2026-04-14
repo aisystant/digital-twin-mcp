@@ -2,9 +2,6 @@ name = "digital-twin-mcp"
 main = "src/worker-sse.js"
 compatibility_date = "2024-12-01"
 
-# Account details - update with your Cloudflare account ID
-# account_id = "your-account-id-here"
-
 [observability]
 [observability.logs]
 enabled = true
@@ -14,74 +11,6 @@ head_sampling_rate = 1
 [vars]
 CORS_ORIGIN = "*"
 
-[env.production]
-name = "digital-twin-mcp-prod"
-routes = [
-  { pattern = "digital-twin-mcp.yourdomain.com", custom_domain = true }
-]
-
-[env.staging]
-name = "digital-twin-mcp-staging"
-
-# Ory auth testing environment (deployed from ory-auth branch)
-[env.ory-auth]
-name = "digital-twin-mcp-ory-auth"
-
-[env.ory-auth.vars]
-RESOURCE_URL = "https://digital-twin-mcp-ory-auth.aisystant.workers.dev"
-CORS_ORIGIN = "*"
-
-[env.ory-auth.observability]
-[env.ory-auth.observability.logs]
-enabled = true
-invocation_logs = true
-head_sampling_rate = 1
-
-# KV for ory-auth env (same as main)
-[[env.ory-auth.kv_namespaces]]
-binding = "DIGITAL_TWIN_DATA"
-id = "640bc613fc57435bbc01da89b5800897"
-
-# KV namespace for persistent twin data storage
-[[kv_namespaces]]
-binding = "DIGITAL_TWIN_DATA"
-id = "640bc613fc57435bbc01da89b5800897"
-
-# Optional: Configure D1 database for SQL storage (future enhancement)
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "digital-twin-db"
-# database_id = "your-d1-database-id"
-
-# ============================================
-# OAuth2 Authorization Server (MCP Auth spec)
-# ============================================
-#
-# This server acts as an OAuth2 AS (like Linear MCP), delegating
-# user authentication to Ory.sh via authorization_code flow.
-#
-# Endpoints:
-#   /.well-known/oauth-authorization-server - AS metadata
-#   /register - Dynamic client registration (RFC 7591)
-#   /authorize - Redirects to Ory
-#   /callback - Handles Ory callback
-#   /token - Token exchange + refresh
-#
-# Environment variables:
-#   ORY_PROJECT_URL - Ory project URL
-#   ORY_CLIENT_ID - OAuth2 client ID in Ory (public, in vars)
-#   ORY_CLIENT_SECRET - OAuth2 client secret (wrangler secret!)
-#   RESOURCE_URL - This server's public URL (optional, auto-detected)
-#   CORS_ORIGIN - Allowed CORS origin (optional, defaults to *)
-#
-# Save ORY_CLIENT_SECRET for each env:
-#   npx wrangler secret put ORY_CLIENT_SECRET
-#   npx wrangler secret put ORY_CLIENT_SECRET --env ory-auth
-#   npx wrangler secret put ORY_CLIENT_SECRET --env staging
-#   npx wrangler secret put ORY_CLIENT_SECRET --env production
-#
-# Save DATABASE_URL (Neon PostgreSQL connection string) for twin data:
-#   npx wrangler secret put DATABASE_URL
-#   npx wrangler secret put DATABASE_URL --env ory-auth
-#   npx wrangler secret put DATABASE_URL --env staging
-#   npx wrangler secret put DATABASE_URL --env production
+# Secrets (set via `wrangler secret put`):
+# ORY_URL       - Ory Hydra base URL (e.g. https://auth.system-school.ru/hydra)
+# DATABASE_URL  - Neon PostgreSQL connection string (for digital_twins + subscription_grants)
