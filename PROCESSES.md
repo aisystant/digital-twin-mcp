@@ -10,6 +10,13 @@ updated: 2026-02-10
 > Внутренние процессы digital-twin-mcp.
 > Межсистемные сценарии → `ecosystem-development/PROCESSES.md`.
 
+## Реализуемые обещания (SC)
+
+| SC | Обещание | Сервисы ЦД |
+|----|----------|------------|
+| [SC.003](../../PACK-digital-platform/pack/digital-platform/08-service-clauses/DP.SC.003-learning-and-development.md) | Обучение и развитие | DT-контекст для персонализации Q&A, ленты, марафона |
+| [SC.009](../../PACK-digital-platform/pack/digital-platform/08-service-clauses/DP.SC.009-analytics-and-metrics.md) | Аналитика и метрики | DT-данные для /analytics, engagement sync |
+
 ---
 
 ## 1. Обработка MCP-запроса

@@ -93,10 +93,12 @@ metamodel/
 │   ├── 1_3_selfeval/
 │   └── 1_4_context/
 │
-├── 2_collected/            # IND.2.* (5 indicators)
-│   ├── 2_5_finance/
+├── 2_collected/            # IND.2.* (30 indicators)
+│   ├── 2_5_community/
+│   ├── 2_6_coding/
+│   ├── 2_7_iwe/
 │   ├── 2_8_ai_logs/
-│   └── 2_9_community/
+│   └── 2_9_finance/
 │
 ├── 3_derived/              # IND.3.* (37 indicators)
 │   ├── 3_1_agency/
