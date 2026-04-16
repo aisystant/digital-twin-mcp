@@ -409,6 +409,8 @@ export default {
 
       // Subscription check delegated to Gateway (ADR-IWE-012, Вариант B → E).
       // Gateway verifies subscription via subscription_grants before proxying.
+      // digital-twin-mcp is a subscription-required backend (dt_* tools).
+      // Note: knowledge-mcp is FREE for authenticated users — Gateway skips subscription check for knowledge_* tools.
       // Backends trust Gateway: if request reached here with valid JWT — subscription was verified.
       // Future (Вариант E): read has_subscription claim from JWT payload directly (requires Paша token hook).
 
