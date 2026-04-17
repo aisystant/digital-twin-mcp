@@ -28,7 +28,7 @@ function getJwks(oryUrl) {
 async function verifyJwtLocally(oryUrl, token) {
   try {
     const jwks = getJwks(oryUrl);
-    const issuer = oryUrl.replace("/hydra", "") + "/";
+    const issuer = oryUrl.endsWith("/") ? oryUrl : oryUrl + "/";
     const { payload } = await jwtVerify(token, jwks, {
       issuer,
       algorithms: ["RS256"],
