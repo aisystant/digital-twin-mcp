@@ -268,7 +268,7 @@ const tools = [
       type: "object",
       properties: {
         path: { type: "string", description: "Path to data" },
-        data: { description: "Data to write (any JSON value)" },
+        data: { type: ["object", "array", "string", "number", "boolean", "null"], description: "Data to write (any JSON value)" },
       },
       required: ["path", "data"],
     },

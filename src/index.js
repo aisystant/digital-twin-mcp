@@ -376,6 +376,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 "Path to data. User can write to 1_declarative/* only",
             },
             data: {
+              type: ["object", "array", "string", "number", "boolean", "null"],
               description: "Data to write (any JSON value)",
             },
           },
