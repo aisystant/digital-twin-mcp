@@ -2,6 +2,10 @@ name = "digital-twin-mcp"
 main = "src/worker-sse.js"
 compatibility_date = "2024-12-01"
 
+[[routes]]
+pattern = "twin.aisystant.com/*"
+zone_name = "aisystant.com"
+
 [observability]
 [observability.logs]
 enabled = true
