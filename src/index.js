@@ -8,6 +8,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ProfileCache } from "./cache.js";
+import { getIndicatorsSchema, INDICATORS_TABLES } from "./utils/db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
@@ -36,8 +37,11 @@ async function getNeonSql() {
 
 async function ensureNeonTable(sql) {
   if (_neonMigrated) return;
+  const indicatorsSchema = getIndicatorsSchema();
+  const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
+  // Note: CREATE TABLE IF NOT EXISTS with schema-qualified name
   await sql`
-    CREATE TABLE IF NOT EXISTS digital_twins (
+    CREATE TABLE IF NOT EXISTS ${sql(twinTable)} (
       user_id TEXT PRIMARY KEY,
       data JSONB NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -52,7 +56,9 @@ async function readTwinData() {
   if (useNeon) {
     const sql = await getNeonSql();
     await ensureNeonTable(sql);
-    const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${DT_USER_ID}`;
+    const indicatorsSchema = getIndicatorsSchema();
+    const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
+    const rows = await sql`SELECT data FROM ${sql(twinTable)} WHERE user_id = ${DT_USER_ID}`;
     return rows.length ? deepParseJSONStrings(rows[0].data) : {};
   }
   const content = await fs.readFile(DATA_PATH, "utf-8");
@@ -64,8 +70,10 @@ async function writeTwinData(data) {
   if (useNeon) {
     const sql = await getNeonSql();
     await ensureNeonTable(sql);
+    const indicatorsSchema = getIndicatorsSchema();
+    const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
     await sql`
-      INSERT INTO digital_twins (user_id, data, updated_at)
+      INSERT INTO ${sql(twinTable)} (user_id, data, updated_at)
       VALUES (${DT_USER_ID}, ${JSON.stringify(data)}, NOW())
       ON CONFLICT (user_id) DO UPDATE
       SET data = EXCLUDED.data, updated_at = NOW()
