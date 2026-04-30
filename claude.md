@@ -51,3 +51,15 @@ Dots are path separators. Use underscores (`_`) instead.
 
 5. Run `node scripts/build-metamodel.js` to regenerate data
 6. Run `npm test` to verify
+
+## Archived: pre-4type projection layer (WP-218 Ф4)
+
+`_archive/pre-4type-projection/` содержит файлы, которые реализовывали projection-слой на старой схеме `indicators.metrics[IND.x.x.x]` (до введения 4-type classification):
+
+- `profile-calculator.js` — старый калькулятор, читал `twinData.indicators.metrics[id]`
+- `mapping.js` — маппинг областей к индикаторам
+- `SPEC-get-profile-by-areas.md` — спека убранного tool `get_profile_by_areas`
+- `tools-profile-calculator.test.js` — тесты убранного слоя
+- `twin.json` — старая плоская схема данных
+
+Активный tool list: `describe_by_path`, `read_digital_twin`, `write_digital_twin`. Расчёт `3_derived` — ответственность R28 Profiler (DP.ARCH.003).
