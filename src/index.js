@@ -444,7 +444,7 @@ async function main() {
   await server.connect(transport);
   const backend = useNeon ? `Neon (user: ${DT_USER_ID.substring(0, 8)}...)` : `file (${DATA_PATH})`;
   console.error(`Digital Twin MCP Server v2.2.0 running on stdio [${backend}]`);
-  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin, get_profile_by_areas");
+  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
 }
 
 main().catch((error) => {
