@@ -7,7 +7,6 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { calculateProfile, detectStep, generateDebugReport, detectDrifts } from "./profile-calculator.js";
 import { ProfileCache } from "./cache.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -383,33 +382,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["path", "data"],
         },
       },
-      {
-        name: "get_profile_by_areas",
-        description:
-          "Профиль ученика по 5 областям развития: GAP-анализ мировоззрения и мастерства относительно нормативов текущей ступени. Read-only projection из L3 показателей ЦД.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            user_id: {
-              type: "string",
-              description:
-                "ID пользователя. Если не указан — из DT_USER_ID env (single-user mode)",
-            },
-            step: {
-              type: "integer",
-              enum: [1, 2, 3, 4, 5],
-              description:
-                "Ступень ученика (1=Случайный..5=Проактивный). Если не указан — из ЦД (indicators.stage.current)",
-            },
-            debug: {
-              type: "boolean",
-              description:
-                "Расширенный ответ: reasoning trace, формулы, baseline comparison. Для наставников и разработчиков.",
-            },
-          },
-          required: [],
-        },
-      },
+      // WP-222 tailor tool mount point
     ],
   };
 });
@@ -450,96 +423,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: JSON.stringify(result, null, 2),
           },
         ],
-      };
-    }
-
-    if (name === "get_profile_by_areas") {
-      const startMs = Date.now();
-      const userId = args.user_id || DT_USER_ID || "default";
-
-      // Security: validate user_id matches session context
-      if (DT_USER_ID && args.user_id && args.user_id !== DT_USER_ID) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              error: "ACCESS_DENIED",
-              message: "Cannot read another user's profile",
-            }),
-          }],
-          isError: true,
-        };
-      }
-
-      // Resolve step
-      let step = args.step;
-      if (!step) {
-        const twinData = await readTwinData();
-        step = detectStep(twinData);
-        if (!step) {
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                error: "STEP_NOT_FOUND",
-                message: "Step not provided and could not be detected from ЦД (indicators.stage.current)",
-              }),
-            }],
-            isError: true,
-          };
-        }
-      }
-
-      // Check cache
-      const cached = profileCache.get(userId, step);
-      if (cached) {
-        const durationMs = Date.now() - startMs;
-        console.error(JSON.stringify({
-          event: "profile_gap_calculated", user_id: userId, step,
-          max_gap_area: cached.data.max_gap?.area, cache_hit: true,
-          mapping_version: cached.data.mapping_version, duration_ms: durationMs,
-        }));
-        return {
-          content: [{ type: "text", text: JSON.stringify(cached.data, null, 2) }],
-        };
-      }
-
-      // Calculate
-      const twinData = await readTwinData();
-      const profile = calculateProfile(twinData, step, userId);
-
-      // Cache result
-      profileCache.set(userId, step, profile);
-
-      // Drift detection
-      const drifts = detectDrifts(profile);
-
-      // Structured log (observability)
-      const durationMs = Date.now() - startMs;
-      const logEntry = {
-        event: "profile_gap_calculated", user_id: userId, step,
-        max_gap_area: profile.max_gap?.area, cache_hit: false,
-        mapping_version: profile.mapping_version, duration_ms: durationMs,
-        drift_count: drifts.length,
-      };
-      if (drifts.length > 0) {
-        logEntry.drifts = drifts.map(d => `${d.area}.${d.dimension}:${d.score}∉[${d.expected}]`);
-      }
-      console.error(JSON.stringify(logEntry));
-
-      // Debug mode: human-readable report + JSON
-      if (args.debug) {
-        const debugReport = generateDebugReport(profile);
-        return {
-          content: [
-            { type: "text", text: debugReport },
-            { type: "text", text: "\n---\n\n```json\n" + JSON.stringify(profile, null, 2) + "\n```" },
-          ],
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
       };
     }
 
