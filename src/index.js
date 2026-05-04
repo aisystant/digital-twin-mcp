@@ -420,6 +420,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      // WP-151 Ф13: RCS snapshot tool
+      {
+        name: "dt_snapshot_rcs",
+        description:
+          "Save a timestamped snapshot of the current RCS profile to history. Called by Оркестратор at week-close or diagnostic session. History is used by detect_metric_jump to track slot changes over time. Returns the snapshot stored and current history length.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
       // WP-222 tailor tool mount point
     ],
   };
@@ -498,6 +508,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       profileCache.invalidate(DT_USER_ID || "default");
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true, rcs: updated }) }],
+      };
+    }
+
+    // WP-151 Ф13: RCS snapshot
+    if (name === "dt_snapshot_rcs") {
+      const data = await readTwinData();
+      const rcs = getByPath(data, "3_derived/rcs_profile");
+      if (!rcs) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "No rcs_profile found at 3_derived/rcs_profile" }) }],
+          isError: true,
+        };
+      }
+      // Map full-format names → compact slot names (matching RCSSnapshot.values)
+      const snapshot = {
+        timestamp: new Date().toISOString(),
+        values: {
+          W: rcs.worldview ?? null,
+          M1: rcs.m1_focus ?? null,
+          M2: rcs.m2_iwe ?? null,
+          M3: rcs.m3_domain ?? null,
+          M4: rcs.m4_systems ?? null,
+          IT: rcs.it_level ?? null,
+          A: rcs.agency ?? null,
+        },
+      };
+      const history = getByPath(data, "3_derived/rcs_history") || [];
+      history.push(snapshot);
+      // Keep max 52 snapshots (one per week for a year)
+      const trimmed = history.slice(-52);
+      setByPath(data, "3_derived/rcs_history", trimmed);
+      await writeTwinData(data);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ success: true, snapshot, history_length: trimmed.length }) }],
       };
     }
 
