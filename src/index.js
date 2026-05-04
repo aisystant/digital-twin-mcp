@@ -390,6 +390,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["path", "data"],
         },
       },
+      // WP-151 Ф12: RCS profile tools
+      {
+        name: "dt_get_profile_rcs",
+        description:
+          "Get the learner's RCS profile (7-slot: worldview, m1_focus, m2_iwe, m3_domain, m4_systems, it_level, agency). Returns null fields when not yet assessed. Used by Orchestrator (R22) and Портной for personalization.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "dt_update_profile_rcs",
+        description:
+          "Update the learner's RCS profile after a diagnostic session. Called by Диагност (R28) or automated Profiler. Merges partial updates (only provided fields are changed).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            worldview: { type: "number", description: "Worldview score 1-5 (W slot)" },
+            m1_focus: { type: "number", description: "M1 self-development methods score 1-5" },
+            m2_iwe: { type: "number", description: "M2 IWE/ORZ score 1-5" },
+            m3_domain: { type: "number", description: "M3 domain knowledge score 1-5" },
+            m4_systems: { type: "number", description: "M4 systems thinking score 1-5" },
+            it_level: { type: "number", description: "IT tools score 1-5" },
+            agency: { type: "number", description: "Agency score 1-5 (A slot)" },
+            bottleneck: { type: "string", description: "Bottleneck slot name (e.g. 'm2_iwe')" },
+            stage_derived: { type: "number", description: "Derived stage 1-5" },
+            source: { type: "string", description: "How was assessed: diagnostic_session | computed | manual" },
+          },
+        },
+      },
       // WP-222 tailor tool mount point
     ],
   };
@@ -431,6 +461,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: JSON.stringify(result, null, 2),
           },
         ],
+      };
+    }
+
+    // WP-151 Ф12: RCS profile tools
+    if (name === "dt_get_profile_rcs") {
+      const data = await readTwinData();
+      const rcs = getByPath(data, "3_derived/rcs_profile") || null;
+      return {
+        content: [{ type: "text", text: JSON.stringify(rcs, null, 2) }],
+      };
+    }
+
+    if (name === "dt_update_profile_rcs") {
+      const data = await readTwinData();
+      const existing = getByPath(data, "3_derived/rcs_profile") || {};
+      const now = new Date().toISOString();
+      const updated = {
+        worldview: null,
+        m1_focus: null,
+        m2_iwe: null,
+        m3_domain: null,
+        m4_systems: null,
+        it_level: null,
+        agency: null,
+        bottleneck: null,
+        stage_derived: null,
+        source: null,
+        updated_at: null,
+        ...existing,
+        ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)),
+        updated_at: now,
+      };
+      setByPath(data, "3_derived/rcs_profile", updated);
+      await writeTwinData(data);
+      profileCache.invalidate(DT_USER_ID || "default");
+      return {
+        content: [{ type: "text", text: JSON.stringify({ success: true, rcs: updated }) }],
       };
     }
 
