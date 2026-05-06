@@ -6,7 +6,7 @@
  */
 
 export function getIndicatorsSchema(env) {
-  return (env?.INDICATORS_DB_SCHEMA || process.env.INDICATORS_DB_SCHEMA) || "indicators";
+  return env?.INDICATORS_DB_SCHEMA ?? "indicators";
 }
 
 /**
