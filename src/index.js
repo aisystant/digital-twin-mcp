@@ -20,6 +20,7 @@ const DATA_PATH = path.join(__dirname, "..", "data", "twin.json");
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const DT_USER_ID = process.env.DT_USER_ID;
+const LEARNING_URL = process.env.LEARNING_URL;  // Neon learning DB (cp_assessments)
 const useNeon = !!(DATABASE_URL && DT_USER_ID);
 
 // Profile projection cache (TTL 5 min, invalidated on write)
@@ -27,12 +28,20 @@ const profileCache = new ProfileCache();
 
 let neonSql = null;
 let _neonMigrated = false;
+let learningSql = null;
 
 async function getNeonSql() {
   if (neonSql) return neonSql;
   const { neon } = await import("@neondatabase/serverless");
   neonSql = neon(DATABASE_URL);
   return neonSql;
+}
+
+async function getLearningSql() {
+  if (learningSql) return learningSql;
+  const { neon } = await import("@neondatabase/serverless");
+  learningSql = neon(LEARNING_URL || DATABASE_URL);
+  return learningSql;
 }
 
 async function ensureNeonTable(sql) {
@@ -430,6 +439,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      // WP-318 Ф3: cp-profile from learning.cp_assessments
+      {
+        name: "dt_get_cp_profile",
+        description:
+          "Get the learner's latest cp-profile from learning.cp_assessments (Neon). " +
+          "Returns stage, bottleneck_slot, recommended_stream, skip_to_stage, cp_scores. " +
+          "Used by Портной (WP-149) and Навигатор for personalization. " +
+          "Returns null if no assessment exists or TTL expired (6 months). " +
+          "Source: DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            only_valid: {
+              type: "boolean",
+              description: "If true (default), return null when TTL expired. If false, return even expired assessment.",
+            },
+          },
+        },
+      },
       // WP-222 tailor tool mount point
     ],
   };
@@ -543,6 +571,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true, snapshot, history_length: trimmed.length }) }],
       };
+    }
+
+    // WP-318 Ф3: cp-profile from learning.cp_assessments
+    if (name === "dt_get_cp_profile") {
+      if (!DT_USER_ID) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "DT_USER_ID not configured" }) }],
+          isError: true,
+        };
+      }
+      if (!LEARNING_URL && !DATABASE_URL) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "LEARNING_URL not configured" }) }],
+          isError: true,
+        };
+      }
+      const onlyValid = args?.only_valid !== false;
+      const sql = await getLearningSql();
+      const rows = await sql`
+        SELECT
+          id, account_id, stage, bottleneck_slot,
+          recommended_stream, skip_to_stage, cp_scores,
+          source, interface, questions_count, rcs_version,
+          assessed_at, valid_until
+        FROM learning.cp_assessments
+        WHERE account_id = ${DT_USER_ID}::uuid
+        ORDER BY assessed_at DESC
+        LIMIT 1
+      `;
+      if (rows.length === 0) {
+        return { content: [{ type: "text", text: JSON.stringify(null) }] };
+      }
+      const row = rows[0];
+      if (onlyValid && row.valid_until && new Date(row.valid_until) < new Date()) {
+        return { content: [{ type: "text", text: JSON.stringify(null) }] };
+      }
+      const profile = {
+        id: Number(row.id),
+        stage: row.stage,
+        bottleneck_slot: row.bottleneck_slot,
+        recommended_stream: row.recommended_stream,
+        skip_to_stage: row.skip_to_stage,
+        cp_scores: row.cp_scores,
+        source: row.source,
+        interface: row.interface,
+        questions_count: row.questions_count,
+        rcs_version: row.rcs_version,
+        assessed_at: row.assessed_at,
+        valid_until: row.valid_until,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
     }
 
     return {
