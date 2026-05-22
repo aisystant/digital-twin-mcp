@@ -1,0 +1,25 @@
+name: Validate DTIndicators
+
+on:
+  push:
+    paths:
+      - 'metamodel/3_derived/**'
+      - 'scripts/generate-indicators.py'
+      - 'generated/**'
+  pull_request:
+    paths:
+      - 'metamodel/3_derived/**'
+      - 'scripts/generate-indicators.py'
+      - 'generated/**'
+
+jobs:
+  check-generated:
+    runs-on: ubuntu-latest
+    name: Check generated/dt_indicators are current
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Check dt_indicators in sync with metamodel
+        run: python3 scripts/generate-indicators.py --check
