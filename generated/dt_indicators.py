@@ -1,5 +1,5 @@
 # AUTO-GENERATED — do not edit.
-# Generated: 2026-05-22T15:27:56Z
+# Generated: 2026-05-22T15:39:22Z
 # Run: python3 scripts/generate-indicators.py
 # Source: metamodel/3_derived/
 #
@@ -51,7 +51,7 @@ class DTIndicator:
     WORK_PRODUCTS_INDEX_CREATIVE_PIPELINE = "IND.3.2.02"  # type=frequency, unit=drafts/week
     ACCOUNTED_TIME_RITUAL_COMPLETION = "IND.3.2.03"  # type=temporal, unit=hours/week
     IWE_MULTIPLIER = "IND.3.2.04"  # type=temporal
-    WORLDVIEW_EVOLUTION = "IND.3.2.04"  # type=semantic
+    WORLDVIEW_EVOLUTION = "IND.3.2.08"  # type=semantic
     HABIT_TRANSFORMATION = "IND.3.2.05"  # type=semantic
     POTENTIAL_GROWTH = "IND.3.2.06"  # type=semantic
     CURRENT_NEGATIVE_HABITS = "IND.3.2.07"  # type=semantic

@@ -84,8 +84,10 @@ def parse_indicator_md(path: Path) -> dict | None:
     }
 
 
-def collect_groups() -> list[dict]:
+def collect_groups() -> tuple[list[dict], bool]:
+    """Returns (groups, has_duplicates). has_duplicates=True → metamodel quality issue."""
     groups = []
+    has_duplicates = False
     for entry in sorted(METAMODEL_3_DERIVED.iterdir()):
         if not entry.is_dir():
             continue
@@ -93,7 +95,7 @@ def collect_groups() -> list[dict]:
 
         indicators = []
         seen_names: set[str] = set()
-        seen_codes: dict[str, str] = {}  # code → first const_name
+        seen_codes: dict[str, str] = {}  # code → first file name
         for md_file in sorted(entry.glob('*.md')):
             if md_file.name == '_group.md':
                 continue
@@ -101,15 +103,16 @@ def collect_groups() -> list[dict]:
             if not ind:
                 continue
 
-            # Warn on duplicate IND codes within a group (metamodel quality issue)
+            # Detect duplicate IND codes within a group (metamodel quality issue)
             code = ind['code']
             if code in seen_codes:
                 print(
-                    f'  ⚠ DUPLICATE IND code {code} in {group_key}: '
+                    f'  ❌ DUPLICATE IND code {code} in {group_key}: '
                     f'{seen_codes[code]} + {md_file.name} — исправить метамодель',
                     file=sys.stderr,
                 )
                 ind['duplicate_code'] = True
+                has_duplicates = True
             else:
                 seen_codes[code] = md_file.name
 
@@ -129,7 +132,7 @@ def collect_groups() -> list[dict]:
             'const_name': group_const_name(group_key),
             'indicators': indicators,
         })
-    return groups
+    return groups, has_duplicates
 
 
 def generate_python(groups: list[dict], ts: str) -> str:
@@ -216,9 +219,13 @@ def main() -> None:
         print(f'ERROR: metamodel directory not found: {METAMODEL_3_DERIVED}', file=sys.stderr)
         sys.exit(2)
 
-    groups = collect_groups()
+    groups, has_duplicates = collect_groups()
     total_indicators = sum(len(g['indicators']) for g in groups)
     print(f'Parsed {len(groups)} groups, {total_indicators} indicators from metamodel')
+
+    if has_duplicates:
+        print('❌ Метамодель содержит дублирующиеся IND-коды — исправить перед генерацией', file=sys.stderr)
+        sys.exit(2)
 
     ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     py_content = generate_python(groups, ts)
