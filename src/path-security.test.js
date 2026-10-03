@@ -14,6 +14,7 @@ import worker from "./worker-sse.js";
 
 const INVALID_PATHS = [
   "", "/", ".", "///", "...", " ", undefined, null, 42, {},
+  "1_declarative", "/1_declarative/", ".1_declarative.",
   "unknown/x", "/unknown/x", "indicators/agency", "1_declarative_extra/x",
   "1_declarative//x", "1_declarative..x", "1_declarative/../x",
   "1_declarative\\x", "\\2_collected\\x", "1_declarative/ /x",
