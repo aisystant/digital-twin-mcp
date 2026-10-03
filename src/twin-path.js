@@ -37,6 +37,9 @@ function userWritePath(pathStr, accessControl) {
       !accessControl[category]?.user?.includes("w")) {
     throw new TwinPathError(`Access denied: users cannot write to ${category}`);
   }
+  if (parts.length === 1) {
+    throw new TwinPathError("Invalid write path: a field under the category is required");
+  }
   return parts.join(".");
 }
 
