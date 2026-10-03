@@ -10,6 +10,7 @@
 import { neon } from "@neondatabase/serverless";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
+import { normalizePath, writeUserTwin } from "./twin-path.js";
 
 // ============================================
 // JWT Verification (ADR-IWE-012)
@@ -94,10 +95,6 @@ async function saveTwinData(env, userId, data) {
   return true;
 }
 
-function normalizePath(p) {
-  return p.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
-}
-
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -106,16 +103,6 @@ function getByPath(obj, pathStr) {
     current = current[part];
   }
   return current;
-}
-
-function setByPath(obj, pathStr, value) {
-  const parts = normalizePath(pathStr).split(".");
-  let current = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (!(parts[i] in current)) current[parts[i]] = {};
-    current = current[parts[i]];
-  }
-  current[parts[parts.length - 1]] = value;
 }
 
 function deepParseJSONStrings(obj) {
@@ -218,20 +205,16 @@ async function readDigitalTwin(env, pathArg, userId) {
 }
 
 async function writeDigitalTwin(env, pathArg, value, userId) {
-  const parts = normalizePath(pathArg).split(".");
-  const category = parts[0];
-  const access = METAMODEL.accessControl?.[category];
-  if (access && !access.user?.includes("w")) {
-    return { error: `Write access denied. Category '${category}' is read-only for users.` };
-  }
   let parsedValue = value;
   if (typeof value === "string") {
     try { parsedValue = JSON.parse(value); } catch {}
   }
-  const twinData = await getTwinData(env, userId);
-  setByPath(twinData, pathArg, parsedValue);
-  const saved = await saveTwinData(env, userId, twinData);
-  return { success: true, path: pathArg, value: parsedValue, user: userId || "anonymous", persisted: saved };
+  const result = await writeUserTwin(pathArg, parsedValue, {
+    accessControl: METAMODEL.accessControl,
+    readData: () => getTwinData(env, userId),
+    writeData: (data) => saveTwinData(env, userId, data),
+  });
+  return result.error ? result : { ...result, user: userId || "anonymous" };
 }
 
 // ============ MCP Protocol ============

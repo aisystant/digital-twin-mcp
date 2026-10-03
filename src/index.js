@@ -8,6 +8,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ProfileCache } from "./cache.js";
+import { normalizePath, setByPath, writeUserTwin } from "./twin-path.js";
 import { getIndicatorsSchema, INDICATORS_TABLES } from "./utils/db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -96,10 +97,6 @@ async function writeTwinData(data) {
 // Path helpers
 // ============================================
 
-function normalizePath(pathStr) {
-  return pathStr.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
-}
-
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
   let current = obj;
@@ -108,19 +105,6 @@ function getByPath(obj, pathStr) {
     current = current[part];
   }
   return current;
-}
-
-function setByPath(obj, pathStr, value) {
-  const parts = normalizePath(pathStr).split(".");
-  let current = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i];
-    if (!(part in current)) {
-      current[part] = {};
-    }
-    current = current[part];
-  }
-  current[parts[parts.length - 1]] = value;
 }
 
 /**
@@ -193,14 +177,6 @@ const ACCESS_CONTROL = {
   "3_derived": { user: "r", guide: "r", system: "w" },
   "4_generated": { user: "r", guide: "rg", system: "g" },
 };
-
-// Helper: check if user can write to path
-function canUserWrite(pathStr) {
-  const category = pathStr.split("/")[0].split(".")[0];
-  const access = ACCESS_CONTROL[category];
-  if (!access) return true; // Allow writes to unknown paths (backward compat)
-  return access.user.includes("w");
-}
 
 // Tool: describe_by_path - reads metamodel MD files (supports nested 4-type structure)
 async function describeByPath(pathArg) {
@@ -317,19 +293,12 @@ async function readDigitalTwin(pathArg) {
 }
 
 // Tool: write_digital_twin - writes twin data by path (with access control)
-async function writeDigitalTwin(pathArg, value, role = "user") {
-  // Check access control for metamodel paths
-  if (!canUserWrite(pathArg) && role === "user") {
-    return {
-      error: `Access denied: users cannot write to ${pathArg.split("/")[0]}`,
-      hint: "Only IND.1.* (1_declarative) paths are writable by users"
-    };
-  }
-
-  const data = await readTwinData();
-  setByPath(data, pathArg, value);
-  await writeTwinData(data);
-  return { success: true, path: pathArg, value };
+async function writeDigitalTwin(pathArg, value) {
+  return writeUserTwin(pathArg, value, {
+    accessControl: ACCESS_CONTROL,
+    readData: readTwinData,
+    writeData: writeTwinData,
+  });
 }
 
 // Create MCP server
@@ -489,10 +458,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     if (name === "write_digital_twin") {
       const result = await writeDigitalTwin(args.path, args.data);
-      // Invalidate profile cache on any write
-      const userId = DT_USER_ID || "default";
-      profileCache.invalidate(userId);
+      if (result.success) {
+        const userId = DT_USER_ID || "default";
+        profileCache.invalidate(userId);
+      }
       return {
+        ...(result.error ? { isError: true } : {}),
         content: [
           {
             type: "text",

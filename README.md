@@ -216,6 +216,30 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node src/index.js
 
 ## Development
 
+### Write path security
+
+Both transports normalize dot/slash paths before checking user access. User writes
+are limited to `1_declarative`; nested declarative keys remain extensible. Empty
+paths, unknown categories, empty internal segments, backslashes, control characters,
+and `__proto__`, `prototype`, or `constructor` segments are rejected before storage
+access. Root reads (`""`, `/`, `.`) remain supported. Local system RCS updates use
+their separate, fixed `3_derived` paths.
+
+### Release readiness
+
+Use the shared [Twelve-Factor/MCP acceptance standard](https://github.com/aisystant/DS-ecosystem-development/blob/main/C.IT-Platform/C2.IT-Platform/C2.3.Operations/README.md).
+From the `DS-ecosystem-development` checkout, verify readiness evidence for the
+exact revision and deployment:
+
+```bash
+python3 0.OPS/scripts/platform-services-registry.py --readiness digital-twin-mcp --revision <full-commit-sha> --deployment cloudflare:production
+```
+
+This checks recorded evidence for that revision/environment; it does not inspect
+configuration automatically or replace the full standard review. Assess local
+deployments separately with their own deployment identifier and evidence: local
+results do not establish cloud readiness, or vice versa.
+
 ### Project Structure
 
 ```
