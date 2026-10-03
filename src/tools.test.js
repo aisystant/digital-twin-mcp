@@ -15,15 +15,12 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ProfileCache } from "./cache.js";
+import { normalizePath, setByPath, writeUserTwin } from "./twin-path.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
 
 // ============ Helper Functions ============
-
-function normalizePath(p) {
-  return p.replace(/\//g, ".").replace(/^\.+|\.+$/g, "");
-}
 
 function getByPath(obj, pathStr) {
   const parts = normalizePath(pathStr).split(".");
@@ -35,16 +32,6 @@ function getByPath(obj, pathStr) {
   return current;
 }
 
-function setByPath(obj, pathStr, value) {
-  const parts = normalizePath(pathStr).split(".");
-  let current = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (!(parts[i] in current)) current[parts[i]] = {};
-    current = current[parts[i]];
-  }
-  current[parts[parts.length - 1]] = value;
-}
-
 // Access control
 const ACCESS_CONTROL = {
   "1_declarative": { user: "rw", guide: "r", system: "rw" },
@@ -52,13 +39,6 @@ const ACCESS_CONTROL = {
   "3_derived": { user: "r", guide: "r", system: "w" },
   "4_generated": { user: "r", guide: "rg", system: "g" },
 };
-
-function canUserWrite(pathStr) {
-  const category = pathStr.split("/")[0].split(".")[0];
-  const access = ACCESS_CONTROL[category];
-  if (!access) return true;
-  return access.user.includes("w");
-}
 
 function parseMdFile(content, filename) {
   const lines = content.split("\n");
@@ -173,12 +153,12 @@ function readDigitalTwin(twinData, pathArg) {
   return value;
 }
 
-function writeDigitalTwin(twinData, pathArg, value, role = "user") {
-  if (!canUserWrite(pathArg) && role === "user") {
-    return { error: `Access denied: users cannot write to ${pathArg.split("/")[0]}` };
-  }
-  setByPath(twinData, pathArg, value);
-  return { success: true, path: pathArg, value };
+function writeDigitalTwin(twinData, pathArg, value) {
+  return writeUserTwin(pathArg, value, {
+    accessControl: ACCESS_CONTROL,
+    readData: async () => twinData,
+    writeData: async () => true,
+  });
 }
 
 // ============ Tests ============
@@ -281,35 +261,38 @@ describe("read_digital_twin", () => {
 });
 
 describe("write_digital_twin (access control)", () => {
-  it("should allow user to write to 1_declarative paths", () => {
+  it("should allow user to write to 1_declarative paths", async () => {
     const data = {};
-    const result = writeDigitalTwin(data, "1_declarative/goals/learning", "test", "user");
+    const result = await writeDigitalTwin(data, "1_declarative/goals/learning", "test");
     assert.ok(result.success, "Should succeed for 1_declarative");
+    assert.equal(data["1_declarative"].goals.learning, "test");
   });
 
-  it("should deny user write to 2_collected paths", () => {
+  it("should deny user write to 2_collected paths", async () => {
     const data = {};
-    const result = writeDigitalTwin(data, "2_collected/time/total", 100, "user");
+    const result = await writeDigitalTwin(data, "2_collected/time/total", 100);
     assert.ok(result.error, "Should have error for 2_collected");
     assert.ok(result.error.includes("Access denied"), "Should be access denied");
+    assert.deepEqual(data, {});
   });
 
-  it("should deny user write to 3_derived paths", () => {
+  it("should deny user write to 3_derived paths", async () => {
     const data = {};
-    const result = writeDigitalTwin(data, "3_derived/agency/index", 0.8, "user");
+    const result = await writeDigitalTwin(data, "3_derived/agency/index", 0.8);
     assert.ok(result.error, "Should have error for 3_derived");
+    assert.deepEqual(data, {});
   });
 
-  it("should allow system to write anywhere", () => {
+  it("should allow a trusted system writer to update its fixed RCS path", () => {
     const data = {};
-    const result = writeDigitalTwin(data, "3_derived/agency/index", 0.8, "system");
-    assert.ok(result.success, "System should be able to write anywhere");
+    setByPath(data, "3_derived/rcs_profile", { agency: 0.8 });
+    assert.deepEqual(data, { "3_derived": { rcs_profile: { agency: 0.8 } } });
   });
 
-  it("should create nested paths", () => {
+  it("should create nested declarative paths", async () => {
     const data = {};
-    writeDigitalTwin(data, "a.b.c.d", "value", "user");
-    assert.equal(data.a.b.c.d, "value");
+    await writeDigitalTwin(data, "1_declarative.a.b.c", "value");
+    assert.equal(data["1_declarative"].a.b.c, "value");
   });
 });
 
@@ -326,15 +309,15 @@ describe("Path helpers", () => {
   });
 
   it("should set value by path", () => {
-    const obj = { a: {} };
-    setByPath(obj, "a.b.c", 42);
-    assert.equal(obj.a.b.c, 42);
+    const obj = { "1_declarative": {} };
+    setByPath(obj, "1_declarative.b.c", 42);
+    assert.equal(obj["1_declarative"].b.c, 42);
   });
 
   it("should create nested objects when setting", () => {
     const obj = {};
-    setByPath(obj, "x.y.z", "value");
-    assert.equal(obj.x.y.z, "value");
+    setByPath(obj, "1_declarative.y.z", "value");
+    assert.equal(obj["1_declarative"].y.z, "value");
   });
 });
 
@@ -350,22 +333,3 @@ describe("MD file parsing", () => {
     assert.ok(parsed.format, "Should have format");
   });
 });
-
-describe("Access control matrix", () => {
-  it("should allow user write to 1_declarative", () => {
-    assert.ok(canUserWrite("1_declarative/goals"), "User should write to 1_declarative");
-  });
-
-  it("should deny user write to 2_collected", () => {
-    assert.ok(!canUserWrite("2_collected/time"), "User should not write to 2_collected");
-  });
-
-  it("should deny user write to 3_derived", () => {
-    assert.ok(!canUserWrite("3_derived/agency"), "User should not write to 3_derived");
-  });
-
-  it("should deny user write to 4_generated", () => {
-    assert.ok(!canUserWrite("4_generated/recommendations"), "User should not write to 4_generated");
-  });
-});
-

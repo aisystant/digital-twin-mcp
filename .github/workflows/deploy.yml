@@ -3,6 +3,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
@@ -14,7 +19,10 @@ jobs:
         with:
           node-version: '22'
       - run: npm install
+      - name: Test write path security and regressions
+        run: node --test src/*.test.js
       - name: Deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
