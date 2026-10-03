@@ -13,14 +13,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Workers
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dt_test
+          POSTGRES_PASSWORD: dt_test
+          POSTGRES_DB: dt_cas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DT_TEST_POSTGRES_URL: postgresql://dt_test@127.0.0.1:5432/dt_cas_test
+      PGPASSWORD: dt_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install
-      - name: Test write path security and regressions
-        run: node --test src/*.test.js
+      - run: npm ci
+      - name: Check generated metamodel
+        run: npm run check:metamodel
+      - name: Test security, PostgreSQL CAS, file concurrency and Workers runtime
+        run: npm test
       - name: Deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3

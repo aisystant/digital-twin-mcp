@@ -9,7 +9,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ProfileCache } from "./cache.js";
 import { normalizePath, setByPath, writeUserTwin } from "./twin-path.js";
-import { getIndicatorsSchema, INDICATORS_TABLES } from "./utils/db.js";
+import { getIndicatorsSchema } from "./utils/db.js";
+import { createPostgresStore, TwinStoreError, storeErrorResult } from "./twin-store.js";
+import { createFileStore } from "./file-twin-store.js";
+import { SERVER_VERSION, STDIO_TOOLS } from "./tool-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const METAMODEL_PATH = path.join(__dirname, "..", "metamodel");
@@ -27,15 +30,20 @@ const useNeon = !!(DATABASE_URL && DT_USER_ID);
 // Profile projection cache (TTL 5 min, invalidated on write)
 const profileCache = new ProfileCache();
 
-let neonSql = null;
-let _neonMigrated = false;
-let learningSql = null;
+let twinStore;
+let learningSql;
 
-async function getNeonSql() {
-  if (neonSql) return neonSql;
-  const { neon } = await import("@neondatabase/serverless");
-  neonSql = neon(DATABASE_URL);
-  return neonSql;
+async function getTwinStore() {
+  if (twinStore) return twinStore;
+  if (useNeon) {
+    const { neon } = await import("@neondatabase/serverless");
+    twinStore = createPostgresStore(neon(DATABASE_URL), DT_USER_ID, {
+      schema: getIndicatorsSchema(process.env), ensureTable: true,
+    });
+  } else {
+    twinStore = createFileStore(DATA_PATH);
+  }
+  return twinStore;
 }
 
 async function getLearningSql() {
@@ -45,52 +53,9 @@ async function getLearningSql() {
   return learningSql;
 }
 
-async function ensureNeonTable(sql) {
-  if (_neonMigrated) return;
-  const indicatorsSchema = getIndicatorsSchema();
-  const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
-  // Note: CREATE TABLE IF NOT EXISTS with schema-qualified name
-  await sql`
-    CREATE TABLE IF NOT EXISTS ${sql(twinTable)} (
-      user_id TEXT PRIMARY KEY,
-      data JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-  _neonMigrated = true;
-}
-
-// Unified read
 async function readTwinData() {
-  if (useNeon) {
-    const sql = await getNeonSql();
-    await ensureNeonTable(sql);
-    const indicatorsSchema = getIndicatorsSchema();
-    const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
-    const rows = await sql`SELECT data FROM ${sql(twinTable)} WHERE user_id = ${DT_USER_ID}`;
-    return rows.length ? deepParseJSONStrings(rows[0].data) : {};
-  }
-  const content = await fs.readFile(DATA_PATH, "utf-8");
-  return JSON.parse(content);
-}
-
-// Unified write
-async function writeTwinData(data) {
-  if (useNeon) {
-    const sql = await getNeonSql();
-    await ensureNeonTable(sql);
-    const indicatorsSchema = getIndicatorsSchema();
-    const twinTable = INDICATORS_TABLES.digital_twins(indicatorsSchema);
-    await sql`
-      INSERT INTO ${sql(twinTable)} (user_id, data, updated_at)
-      VALUES (${DT_USER_ID}, ${JSON.stringify(data)}, NOW())
-      ON CONFLICT (user_id) DO UPDATE
-      SET data = EXCLUDED.data, updated_at = NOW()
-    `;
-    return;
-  }
-  await fs.writeFile(DATA_PATH, JSON.stringify(data, null, 2));
+  const { data } = await (await getTwinStore()).readSnapshot();
+  return useNeon ? deepParseJSONStrings(data) : data;
 }
 
 // ============================================
@@ -268,8 +233,15 @@ async function describeByPath(pathArg) {
 }
 
 // Tool: read_digital_twin - reads twin data by path
-async function readDigitalTwin(pathArg) {
-  const data = await readTwinData();
+async function readDigitalTwin(pathArg, includeRevision) {
+  const snapshot = await (await getTwinStore()).readSnapshot();
+  const data = useNeon ? deepParseJSONStrings(snapshot.data) : snapshot.data;
+  const result = readTwinValue(data, pathArg);
+  const found = !pathArg || pathArg === "/" || pathArg === "." || getByPath(data, pathArg) !== undefined;
+  return includeRevision === true && found ? { data: result, revision: snapshot.revision } : result;
+}
+
+function readTwinValue(data, pathArg) {
 
   // If no path, return all data
   if (!pathArg || pathArg === "/" || pathArg === ".") {
@@ -293,11 +265,11 @@ async function readDigitalTwin(pathArg) {
 }
 
 // Tool: write_digital_twin - writes twin data by path (with access control)
-async function writeDigitalTwin(pathArg, value) {
+async function writeDigitalTwin(pathArg, value, expectedRevision) {
   return writeUserTwin(pathArg, value, {
     accessControl: ACCESS_CONTROL,
-    readData: readTwinData,
-    writeData: writeTwinData,
+    store: await getTwinStore(),
+    expectedRevision,
   });
 }
 
@@ -305,7 +277,7 @@ async function writeDigitalTwin(pathArg, value) {
 const server = new Server(
   {
     name: "digital-twin-mcp-server",
-    version: "2.2.0",
+    version: SERVER_VERSION,
   },
   {
     capabilities: {
@@ -314,127 +286,11 @@ const server = new Server(
   }
 );
 
-// Define tools
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "describe_by_path",
-        description:
-          "Describe the digital twin metamodel structure (4-type classification: IND.1-4). Returns categories, groups, and indicators.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description: "Path in metamodel. Examples: '/' (list categories), '1_declarative' (list subgroups), '1_declarative/1_2_goals' (list indicators)",
-            },
-          },
-        },
-      },
-      {
-        name: "read_digital_twin",
-        description:
-          "Read data from the digital twin by path. All indicator types (IND.1-4) are readable. Includes engagement metrics (2_collected) synced from the learning bot.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description:
-                "Path to data. Examples: '2_collected' (all engagement), '2_collected/2_1_account' (sessions), '2_collected/2_4_time' (activity rhythm), '1_declarative/1_2_goals' (declared goals)",
-            },
-          },
-          required: ["path"],
-        },
-      },
-      {
-        name: "write_digital_twin",
-        description:
-          "Write data to the digital twin. Only IND.1.* (1_declarative) paths are writable by users. IND.2-4 are system-only.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description:
-                "Path to data. User can write to 1_declarative/* only",
-            },
-            data: {
-              type: ["object", "array", "string", "number", "boolean", "null"],
-              description: "Data to write (any JSON value)",
-            },
-          },
-          required: ["path", "data"],
-        },
-      },
-      // WP-151 Ф12: RCS profile tools
-      {
-        name: "dt_get_profile_rcs",
-        description:
-          "Get the learner's RCS profile (7-slot: worldview, m1_focus, m2_iwe, m3_domain, m4_systems, it_level, agency). Returns null fields when not yet assessed. Used by Orchestrator (R22) and Портной for personalization.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "dt_update_profile_rcs",
-        description:
-          "Update the learner's RCS profile after a diagnostic session. Called by Диагност (R28) or automated Profiler. Merges partial updates (only provided fields are changed).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            worldview: { type: "number", description: "Worldview score 1-5 (W slot)" },
-            m1_focus: { type: "number", description: "M1 self-development methods score 1-5" },
-            m2_iwe: { type: "number", description: "M2 IWE/ORZ score 1-5" },
-            m3_domain: { type: "number", description: "M3 domain knowledge score 1-5" },
-            m4_systems: { type: "number", description: "M4 systems thinking score 1-5" },
-            it_level: { type: "number", description: "IT tools score 1-5" },
-            agency: { type: "number", description: "Agency score 1-5 (A slot)" },
-            bottleneck: { type: "string", description: "Bottleneck slot name (e.g. 'm2_iwe')" },
-            stage_derived: { type: "number", description: "Derived stage 1-5" },
-            source: { type: "string", description: "How was assessed: diagnostic_session | computed | manual" },
-          },
-        },
-      },
-      // WP-151 Ф13: RCS snapshot tool
-      {
-        name: "dt_snapshot_rcs",
-        description:
-          "Save a timestamped snapshot of the current RCS profile to history. Called by Оркестратор at week-close or diagnostic session. History is used by detect_metric_jump to track slot changes over time. Returns the snapshot stored and current history length.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      // WP-318 Ф3: cp-profile from learning.cp_assessments
-      {
-        name: "dt_get_cp_profile",
-        description:
-          "Get the learner's latest cp-profile from learning.cp_assessments (Neon). " +
-          "Returns stage, bottleneck_slot, recommended_stream, skip_to_stage, cp_scores. " +
-          "Used by Портной (WP-149) and Навигатор for personalization. " +
-          "Returns null if no assessment exists or TTL expired (6 months). " +
-          "Source: DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            only_valid: {
-              type: "boolean",
-              description: "If true (default), return null when TTL expired. If false, return even expired assessment.",
-            },
-          },
-        },
-      },
-      // WP-222 tailor tool mount point
-    ],
-  };
-});
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: STDIO_TOOLS }));
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  const { name, arguments: args = {} } = request.params;
 
   try {
     if (name === "describe_by_path") {
@@ -445,7 +301,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "read_digital_twin") {
-      const result = await readDigitalTwin(args.path);
+      const result = await readDigitalTwin(args.path, args.include_revision);
       return {
         content: [
           {
@@ -457,7 +313,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "write_digital_twin") {
-      const result = await writeDigitalTwin(args.path, args.data);
+      const result = await writeDigitalTwin(args.path, args.data, args.expected_revision);
       if (result.success) {
         const userId = DT_USER_ID || "default";
         profileCache.invalidate(userId);
@@ -483,64 +339,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "dt_update_profile_rcs") {
-      const data = await readTwinData();
-      const existing = getByPath(data, "3_derived/rcs_profile") || {};
+      const { expected_revision: expectedRevision, ...fields } = args;
       const now = new Date().toISOString();
-      const updated = {
-        worldview: null,
-        m1_focus: null,
-        m2_iwe: null,
-        m3_domain: null,
-        m4_systems: null,
-        it_level: null,
-        agency: null,
-        bottleneck: null,
-        stage_derived: null,
-        source: null,
-        updated_at: null,
-        ...existing,
-        ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)),
-        updated_at: now,
-      };
-      setByPath(data, "3_derived/rcs_profile", updated);
-      await writeTwinData(data);
+      const saved = await (await getTwinStore()).mutate((data) => {
+        const existing = getByPath(data, "3_derived/rcs_profile") || {};
+        const updated = {
+          worldview: null, m1_focus: null, m2_iwe: null, m3_domain: null,
+          m4_systems: null, it_level: null, agency: null, bottleneck: null,
+          stage_derived: null, source: null,
+          ...existing,
+          ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
+          updated_at: now,
+        };
+        setByPath(data, "3_derived/rcs_profile", updated);
+        return updated;
+      }, { expectedRevision });
       profileCache.invalidate(DT_USER_ID || "default");
       return {
-        content: [{ type: "text", text: JSON.stringify({ success: true, rcs: updated }) }],
+        content: [{ type: "text", text: JSON.stringify({ success: true, rcs: saved.result, revision: saved.revision }) }],
       };
     }
 
-    // WP-151 Ф13: RCS snapshot
     if (name === "dt_snapshot_rcs") {
-      const data = await readTwinData();
-      const rcs = getByPath(data, "3_derived/rcs_profile");
-      if (!rcs) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: "No rcs_profile found at 3_derived/rcs_profile" }) }],
-          isError: true,
+      const timestamp = new Date().toISOString();
+      const saved = await (await getTwinStore()).mutate((data) => {
+        const rcs = getByPath(data, "3_derived/rcs_profile");
+        if (!rcs) throw new TwinStoreError("profile_missing", "No rcs_profile found at 3_derived/rcs_profile");
+        const snapshot = {
+          timestamp,
+          values: {
+            W: rcs.worldview ?? null, M1: rcs.m1_focus ?? null, M2: rcs.m2_iwe ?? null,
+            M3: rcs.m3_domain ?? null, M4: rcs.m4_systems ?? null,
+            IT: rcs.it_level ?? null, A: rcs.agency ?? null,
+          },
         };
-      }
-      // Map full-format names → compact slot names (matching RCSSnapshot.values)
-      const snapshot = {
-        timestamp: new Date().toISOString(),
-        values: {
-          W: rcs.worldview ?? null,
-          M1: rcs.m1_focus ?? null,
-          M2: rcs.m2_iwe ?? null,
-          M3: rcs.m3_domain ?? null,
-          M4: rcs.m4_systems ?? null,
-          IT: rcs.it_level ?? null,
-          A: rcs.agency ?? null,
-        },
-      };
-      const history = getByPath(data, "3_derived/rcs_history") || [];
-      history.push(snapshot);
-      // Keep max 52 snapshots (one per week for a year)
-      const trimmed = history.slice(-52);
-      setByPath(data, "3_derived/rcs_history", trimmed);
-      await writeTwinData(data);
+        const history = [...(getByPath(data, "3_derived/rcs_history") || []), snapshot].slice(-52);
+        setByPath(data, "3_derived/rcs_history", history);
+        return { snapshot, history_length: history.length };
+      }, { expectedRevision: args.expected_revision });
       return {
-        content: [{ type: "text", text: JSON.stringify({ success: true, snapshot, history_length: trimmed.length }) }],
+        content: [{ type: "text", text: JSON.stringify({ success: true, ...saved.result, revision: saved.revision }) }],
       };
     }
 
@@ -601,7 +439,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   } catch (error) {
     return {
-      content: [{ type: "text", text: `Error: ${error.message}` }],
+      content: [{ type: "text", text: error instanceof TwinStoreError ? JSON.stringify(storeErrorResult(error)) : `Error: ${error.message}` }],
       isError: true,
     };
   }
@@ -612,8 +450,8 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const backend = useNeon ? `Neon (user: ${DT_USER_ID.substring(0, 8)}...)` : `file (${DATA_PATH})`;
-  console.error(`Digital Twin MCP Server v2.2.0 running on stdio [${backend}]`);
-  console.error("Tools: describe_by_path, read_digital_twin, write_digital_twin");
+  console.error(`Digital Twin MCP Server v${SERVER_VERSION} running on stdio [${backend}]`);
+  console.error(`Tools: ${STDIO_TOOLS.map((tool) => tool.name).join(", ")}`);
 }
 
 main().catch((error) => {

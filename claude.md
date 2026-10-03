@@ -62,4 +62,6 @@ Dots are path separators. Use underscores (`_`) instead.
 - `tools-profile-calculator.test.js` — тесты убранного слоя
 - `twin.json` — старая плоская схема данных
 
-Активный tool list: `describe_by_path`, `read_digital_twin`, `write_digital_twin`. Расчёт `3_derived` — ответственность R28 Profiler (DP.ARCH.003).
+Общие инструменты HTTP/stdio: `describe_by_path`, `read_digital_twin`, `write_digital_twin`. Только stdio: `dt_get_profile_rcs`, `dt_update_profile_rcs`, `dt_snapshot_rcs`, `dt_get_cp_profile`. Каталог — `src/tool-catalog.js`, версия сервиса — `package.json`. Расчёт `3_derived` — ответственность R28 Profiler (DP.ARCH.003).
+
+Все записи проходят через `store.mutate`: PostgreSQL сравнивает исходный JSONB, файловое хранилище блокирует весь цикл чтения и атомарной замены. `expected_revision` включает строгую проверку без повторов; без него допускается ограниченный повтор изменения заданного пути. Версия содержимого возвращается при `read_digital_twin({path, include_revision:true})`. Она не является счётчиком событий: ABA допустим. Подробности совместимости и тестов — README.

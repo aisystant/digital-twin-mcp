@@ -46,12 +46,16 @@ export function setByPath(obj, pathStr, value) {
   const parts = writePathParts(pathStr);
   let current = obj;
   for (let i = 0; i < parts.length; i++) {
-    if (current === null || typeof current !== "object") {
+    if (current === null || typeof current !== "object" || JSON.isRawJSON(current)) {
       throw new TwinPathError("Invalid write path: parent is not an object");
     }
     const part = parts[i];
-    if (Array.isArray(current) && part === "length") {
-      throw new TwinPathError("Invalid write path: array length cannot be written");
+    if (Array.isArray(current)) {
+      const index = Number(part);
+      if (!/^(0|[1-9][0-9]*)$/.test(part) || !Number.isSafeInteger(index) ||
+          index >= 4294967295 || index > current.length) {
+        throw new TwinPathError("Invalid write path: arrays accept only an existing index or the next index for append");
+      }
     }
     if (i === parts.length - 1 || !Object.hasOwn(current, part)) {
       Object.defineProperty(current, part, {
@@ -65,7 +69,7 @@ export function setByPath(obj, pathStr, value) {
   }
 }
 
-export async function writeUserTwin(pathStr, value, { accessControl, readData, writeData }) {
+export async function writeUserTwin(pathStr, value, { accessControl, store, expectedRevision }) {
   let normalized;
   try {
     normalized = userWritePath(pathStr, accessControl);
@@ -74,13 +78,15 @@ export async function writeUserTwin(pathStr, value, { accessControl, readData, w
     return { error: error.message };
   }
 
-  const data = await readData();
+  if (value === undefined) {
+    return { error: "data is required and must be a JSON value", code: "invalid_data" };
+  }
+
   try {
-    setByPath(data, normalized, value);
+    const saved = await store.mutate((data) => setByPath(data, normalized, value), { expectedRevision });
+    return { success: true, path: pathStr, value, persisted: saved.persisted, revision: saved.revision };
   } catch (error) {
     if (!(error instanceof TwinPathError)) throw error;
     return { error: error.message };
   }
-  const persisted = await writeData(data);
-  return { success: true, path: pathStr, value, persisted };
 }

@@ -156,8 +156,7 @@ function readDigitalTwin(twinData, pathArg) {
 function writeDigitalTwin(twinData, pathArg, value) {
   return writeUserTwin(pathArg, value, {
     accessControl: ACCESS_CONTROL,
-    readData: async () => twinData,
-    writeData: async () => true,
+    store: { async mutate(change) { change(twinData); return { persisted: true, revision: "synthetic" }; } },
   });
 }
 
