@@ -50,6 +50,9 @@ export function setByPath(obj, pathStr, value) {
       throw new TwinPathError("Invalid write path: parent is not an object");
     }
     const part = parts[i];
+    if (Array.isArray(current) && part === "length") {
+      throw new TwinPathError("Invalid write path: array length cannot be written");
+    }
     if (i === parts.length - 1 || !Object.hasOwn(current, part)) {
       Object.defineProperty(current, part, {
         value: i === parts.length - 1 ? value : {},

@@ -115,6 +115,15 @@ describe("user write path security (shared local/cloud implementation)", () => {
     });
   }
 
+  it("rejects array length writes without changing or persisting data", async () => {
+    const store = syntheticStore({ "1_declarative": { goals: ["keep", "also keep"] } });
+    const before = structuredClone(store.snapshot());
+    const result = await writeUserTwin("1_declarative/goals/length", 0, store.options);
+    assert.match(result.error, /array length cannot be written/);
+    assert.equal(result.success, undefined);
+    assert.deepEqual(store.snapshot(), { ...before, reads: 1 });
+  });
+
   it("fails closed when the access matrix has no own user-write permission", async () => {
     for (const accessControl of [undefined, {}, Object.create(METAMODEL.accessControl)]) {
       const store = syntheticStore();
