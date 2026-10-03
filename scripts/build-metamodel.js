@@ -19,19 +19,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const METAMODEL_PATH = path.join(ROOT, 'metamodel');
 const OUTPUT_PATH = path.join(ROOT, 'src', 'metamodel-data.js');
+const byName = (a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
 async function readIndicatorsFromDir(dirPath) {
   const indicators = {};
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
+    for (const entry of entries.sort(byName)) {
       if (entry.isFile() && entry.name.endsWith('.md') && entry.name !== '_group.md') {
         const content = await fs.readFile(path.join(dirPath, entry.name), 'utf-8');
         indicators[entry.name.replace('.md', '')] = content;
       }
     }
   } catch (err) {
-    // Directory may be empty or not exist
+    if (err.code !== 'ENOENT') throw err;
   }
   return indicators;
 }
@@ -39,7 +40,8 @@ async function readIndicatorsFromDir(dirPath) {
 async function readGroupDescription(dirPath) {
   try {
     return await fs.readFile(path.join(dirPath, '_group.md'), 'utf-8');
-  } catch {
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
     return '';
   }
 }
@@ -65,7 +67,7 @@ async function main() {
   const sharedPath = path.join(METAMODEL_PATH, '_shared');
   try {
     const sharedEntries = await fs.readdir(sharedPath, { withFileTypes: true });
-    for (const entry of sharedEntries) {
+    for (const entry of sharedEntries.sort(byName)) {
       if (entry.isFile() && entry.name.endsWith('.md')) {
         const content = await fs.readFile(path.join(sharedPath, entry.name), 'utf-8');
         metamodel.rootFiles[entry.name.replace('.md', '')] = content;
@@ -73,11 +75,12 @@ async function main() {
       }
     }
   } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
     console.log('  No _shared folder found');
   }
 
   // Read category folders (1_declarative, 2_collected, 3_derived, 4_generated)
-  for (const categoryEntry of entries) {
+  for (const categoryEntry of entries.sort(byName)) {
     if (!categoryEntry.isDirectory() || categoryEntry.name.startsWith('_')) {
       continue;
     }
@@ -91,14 +94,14 @@ async function main() {
 
     const subEntries = await fs.readdir(categoryPath, { withFileTypes: true });
 
-    for (const subEntry of subEntries) {
+    for (const subEntry of subEntries.sort(byName)) {
       if (!subEntry.isDirectory()) continue;
 
       const subgroupPath = path.join(categoryPath, subEntry.name);
       const indicators = await readIndicatorsFromDir(subgroupPath);
       const indicatorCount = Object.keys(indicators).length;
 
-      if (indicatorCount > 0 || true) { // Include empty groups for structure
+      { // Include empty groups for structure
         const subgroup = {
           name: subEntry.name,
           fullPath: `${categoryEntry.name}/${subEntry.name}`,
@@ -125,8 +128,8 @@ async function main() {
   }
 
   // Sort
-  metamodel.categories.sort((a, b) => a.name.localeCompare(b.name));
-  metamodel.groups.sort((a, b) => a.name.localeCompare(b.name));
+  metamodel.categories.sort(byName);
+  metamodel.groups.sort(byName);
 
   // Count totals
   let totalIndicators = 0;
@@ -138,7 +141,6 @@ async function main() {
 
   // Generate JavaScript module
   const output = `// Auto-generated from MD files - do not edit manually
-// Generated at: ${new Date().toISOString()}
 // Structure: 4-type classification (IND.1-4)
 
 export const METAMODEL = ${JSON.stringify(metamodel, null, 2)};
@@ -184,6 +186,12 @@ export function isGenerated(path) {
 }
 `;
 
+  if (process.argv.includes('--check')) {
+    const current = await fs.readFile(OUTPUT_PATH, 'utf8');
+    if (current !== output) throw new Error('Embedded metamodel is stale; run npm run build');
+    console.log('Embedded metamodel matches Markdown sources');
+    return;
+  }
   await fs.writeFile(OUTPUT_PATH, output);
   console.log(`\n✅ Generated: ${OUTPUT_PATH}`);
   console.log(`   Categories: ${metamodel.categories.length}`);
@@ -192,4 +200,4 @@ export function isGenerated(path) {
   console.log(`   Shared files: ${Object.keys(metamodel.rootFiles).length}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exitCode = 1; });

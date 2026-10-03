@@ -6,11 +6,11 @@ MCP (Model Context Protocol) server for Digital Twin learner data. Provides tool
 
 ## Overview
 
-This server implements a metamodel-driven approach with 3 MCP tools and 4 indicator types (IND.1-4).
+This server implements a metamodel-driven approach with 3 shared MCP tools, 4 local extensions and 4 indicator types (IND.1-4).
 
 ### Key Features
 
-- **3 MCP Tools** for metamodel exploration and data management
+- **3 shared MCP tools + 4 stdio extensions** for metamodel exploration and data management
 - **4-Type Classification** (IND.1-4) with access control
 - **65+ Indicators** organized in hierarchical structure
 - **Dual Deployment** - stdio for local MCP clients + HTTP API for Cloudflare Workers
@@ -28,7 +28,7 @@ This server implements a metamodel-driven approach with 3 MCP tools and 4 indica
                ▼
 ┌─────────────────────────────────────┐
 │  MCP Server (this project)          │
-│  - 3 tools                          │
+│  - 3 core + 4 stdio extensions     │
 │  - Access control (IND.1 writable)  │
 │  - Metamodel-driven                 │
 └──────────────┬──────────────────────┘
@@ -291,5 +291,75 @@ MIT
 
 ---
 
-**Version:** 2.0.0
-**Last Updated:** 2025-02-05
+**Version:** see `package.json` (shared by both transports)
+**Last Updated:** 2026-10-03
+
+## Concurrent writes and content revisions
+
+The shared catalog is `src/tool-catalog.js`: HTTP exposes three core tools; stdio
+also exposes `dt_get_profile_rcs`, `dt_update_profile_rcs`, `dt_snapshot_rcs`, and
+`dt_get_cp_profile`. All transports report the release version from `package.json`.
+This does not make all transport behavior identical: HTTP continues to parse a
+JSON-encoded string passed as `data`; stdio stores it as a literal string.
+
+Writes require an explicit `data` value (including `null` when intended).
+Within arrays, paths accept only canonical non-negative integer indices: an
+existing index or exactly the next index for contiguous append. Named properties,
+leading zeros and sparse indices are rejected. Replacing an entire array remains
+supported.
+
+Existing reads return the same value as before, including root reads. Opt in to a
+content revision when an update depends on previously read data:
+
+```json
+{"path":"1_declarative","include_revision":true}
+```
+
+The result is `{ "data": ..., "revision": "v1:<64 hex characters>" }`. Pass that
+revision as `expected_revision` to `write_digital_twin` or either local RCS writer.
+A stale revision returns `revision_conflict` without applying or retrying the
+mutation. Successful writes include the new `revision`. Revisions describe the
+whole document's current contents, not an event sequence: A→B→A is permitted.
+An absent database row differs from an existing empty document. File formatting
+changes may invalidate a revision even when JSON values are equivalent.
+
+Without `expected_revision`, PostgreSQL attempts at most three read/mutate/CAS
+cycles. Every retry applies only the requested path operation to the latest
+snapshot. Independent changes survive; the last successful write to the same
+path wins. CAS compares the original JSONB, so it also detects external SQL
+updates of `data` without a migration or revision column. A change to only
+`updated_at` does not conflict. Network errors are not retried because the commit
+outcome may be unknown. This does not make repeated client requests idempotent
+or protect external writers that replace whole documents or stale subtrees.
+
+Local Neon uses `INDICATORS_DB_SCHEMA` (default `indicators`); HTTP retains its
+existing unqualified `digital_twins`/database search path. These may be different
+physical stores. This release neither moves data nor unifies their connections.
+Missing cloud database configuration returns `storage_unavailable`, never a
+successful unpersisted write.
+
+The local file backend retains the plain `data/twin.json` format. Cooperating
+processes lock its resolved path through the whole read/update cycle, write a
+private temporary file, sync it, atomically rename it, and sync the directory.
+A lock timeout returns `storage_locked`; locks are never stolen by age. After a
+crash, stop all processes using that file, establish that its owner has exited,
+and only then remove the adjacent `.lock`. A replaced lock is not removed by its
+former owner. `storage_outcome_unknown` after rename requires re-reading before
+retrying. Direct file writers that ignore this locking protocol are outside its
+guarantee. Use a local filesystem, not a network filesystem.
+
+### Development verification
+
+Install the committed dependency snapshot with `npm ci`. Use Node.js 22+ and PostgreSQL 16+ command-line tools (`psql`, `initdb`, `pg_ctl`)
+on `PATH`. `npm test` creates and removes its own temporary PostgreSQL cluster
+and synthetic twin files; it never loads `data/twin.json` from your working copy.
+Alternatively, set `DT_TEST_POSTGRES_URL` to a disposable local database named
+`dt_cas_test`. CI supplies that database in a PostgreSQL service container.
+Tests exercise the installed Neon SDK against real PostgreSQL statements,
+concurrent Node processes, authenticated HTTP and stdio contracts, and workerd
+through Miniflare. The local Neon HTTP test adapter is not a production Neon
+network/connectivity test.
+
+Run `npm run build` after changing metamodel Markdown, then
+`npm run check:metamodel`. CI rejects stale generated content before testing or
+publishing. The generator is deterministic; it does not embed build timestamps.

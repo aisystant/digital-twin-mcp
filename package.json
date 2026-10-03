@@ -1,6 +1,6 @@
 {
   "name": "digital-twin-mcp-server",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "description": "MCP server for Digital Twin learner data - provides tools for AI Guide to work with learner profiles and metrics",
   "type": "module",
   "main": "src/index.js",
@@ -8,8 +8,9 @@
     "build": "node scripts/build-metamodel.js",
     "dev": "wrangler dev",
     "deploy": "npm run build && wrangler deploy",
-    "test": "node --test src/**/*.test.js",
-    "prebuild": "echo 'Building metamodel data from MD files...'"
+    "test": "node --test src/*.test.js",
+    "prebuild": "echo 'Building metamodel data from MD files...'",
+    "check:metamodel": "node scripts/build-metamodel.js --check"
   },
   "keywords": [
     "mcp",
@@ -25,6 +26,11 @@
     "jose": "^6.2.12"
   },
   "devDependencies": {
-    "wrangler": "^4.131.2"
+    "wrangler": "4.147.0",
+    "miniflare": "5.20261001.0-alpha",
+    "esbuild": "0.28.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

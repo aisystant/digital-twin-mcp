@@ -40,11 +40,14 @@ function syntheticStore(initial = { "1_declarative": { existing: "keep" } }) {
     data,
     options: {
       accessControl: METAMODEL.accessControl,
-      readData: async () => { reads++; return data; },
-      writeData: async (updated) => {
-        writes++;
-        persisted = structuredClone(updated);
-        return true;
+      store: {
+        async mutate(change) {
+          reads++;
+          change(data);
+          writes++;
+          persisted = structuredClone(data);
+          return { persisted: true, revision: "synthetic" };
+        },
       },
     },
     snapshot: () => ({ data, persisted, reads, writes }),
@@ -52,6 +55,37 @@ function syntheticStore(initial = { "1_declarative": { existing: "keep" } }) {
 }
 
 describe("user write path security (shared local/cloud implementation)", () => {
+  it("rejects missing data before reading or mutating storage", async () => {
+    const store = syntheticStore();
+    const before = structuredClone(store.snapshot());
+    const result = await writeUserTwin("1_declarative.existing", undefined, store.options);
+    assert.equal(result.code, "invalid_data");
+    assert.equal(result.success, undefined);
+    assert.deepEqual(store.snapshot(), before);
+  });
+
+  for (const index of ["foo", "01", "00", "-1", "+1", "1e2", "length", "3", "1000000", "4294967295", "9007199254740993"]) {
+    it(`rejects array property/index ${index} without changing stored data`, async () => {
+      const store = syntheticStore({ "1_declarative": { items: [0, 1] } });
+      const before = structuredClone(store.snapshot());
+      const result = await writeUserTwin(`1_declarative.items/${index}`, "blocked", store.options);
+      assert.equal(typeof result.error, "string");
+      assert.equal(result.success, undefined);
+      assert.deepEqual(store.snapshot().data, before.data);
+      assert.deepEqual(store.snapshot().persisted, before.persisted);
+      assert.equal(store.snapshot().writes, 0);
+    });
+  }
+
+  it("persists canonical array indices, contiguous append and whole-array replacement", async () => {
+    const store = syntheticStore({ "1_declarative": { items: [0, 1] } });
+    assert.equal((await writeUserTwin("1_declarative.items/0", "changed", store.options)).success, true);
+    assert.equal((await writeUserTwin("1_declarative.items/2", "appended", store.options)).success, true);
+    assert.deepEqual(store.snapshot().persisted["1_declarative"].items, ["changed", 1, "appended"]);
+    assert.equal((await writeUserTwin("1_declarative.items", ["replacement"], store.options)).success, true);
+    assert.deepEqual(store.snapshot().persisted["1_declarative"].items, ["replacement"]);
+  });
+
   for (const path of INVALID_PATHS) {
     it(`rejects ${JSON.stringify(path)} before accessing storage`, async () => {
       const store = syntheticStore();
@@ -119,7 +153,7 @@ describe("user write path security (shared local/cloud implementation)", () => {
     const store = syntheticStore({ "1_declarative": { goals: ["keep", "also keep"] } });
     const before = structuredClone(store.snapshot());
     const result = await writeUserTwin("1_declarative/goals/length", 0, store.options);
-    assert.match(result.error, /array length cannot be written/);
+    assert.match(result.error, /arrays accept only/);
     assert.equal(result.success, undefined);
     assert.deepEqual(store.snapshot(), { ...before, reads: 1 });
   });
@@ -175,11 +209,11 @@ describe("transport regressions with synthetic storage", () => {
       await fs.rm(fixture, { recursive: true, force: true });
     });
     await fs.cp(path.join(repo, "src"), path.join(fixture, "src"), { recursive: true });
-    await fs.writeFile(path.join(fixture, "package.json"), '{"type":"module"}');
+    await fs.copyFile(path.join(repo, "package.json"), path.join(fixture, "package.json"));
     await fs.symlink(path.join(repo, "node_modules"), path.join(fixture, "node_modules"), "dir");
     await fs.mkdir(path.join(fixture, "data"));
     const dataPath = path.join(fixture, "data", "twin.json");
-    const initial = { "1_declarative": { existing: "keep" }, "2_collected": { x: 1 } };
+    const initial = { "1_declarative": { existing: "keep", items: [0, 1] }, "2_collected": { x: 1 } };
     const initialBytes = JSON.stringify(initial);
     await fs.writeFile(dataPath, initialBytes);
     const transport = new StdioClientTransport({
@@ -198,6 +232,15 @@ describe("transport regressions with synthetic storage", () => {
       assert.equal(result.isError, true, `Expected error for ${JSON.stringify(unsafePath)}`);
       assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
     }
+    const missing = await client.callTool({ name: "write_digital_twin", arguments: { path: "1_declarative.existing" } });
+    assert.equal(missing.isError, true);
+    assert.equal(JSON.parse(missing.content[0].text).code, "invalid_data");
+    assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
+    for (const index of ["foo", "01", "1000000"]) {
+      const result = await client.callTool({ name: "write_digital_twin", arguments: { path: `1_declarative.items/${index}`, data: "blocked" } });
+      assert.equal(result.isError, true);
+      assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
+    }
     for (const root of ["", "/", "."]) {
       const result = await client.callTool({ name: "read_digital_twin", arguments: { path: root } });
       assert.deepEqual(JSON.parse(result.content[0].text), initial);
@@ -210,8 +253,16 @@ describe("transport regressions with synthetic storage", () => {
     assert.notEqual(result.isError, true);
     const persisted = JSON.parse(await fs.readFile(dataPath, "utf8"));
     assert.deepEqual(persisted, {
-      ...initial, "1_declarative": { existing: "keep", goals: { learning: value } },
+      ...initial, "1_declarative": { ...initial["1_declarative"], goals: { learning: value } },
     });
+    for (const [field, data, expected] of [
+      ["1_declarative.items/2", "appended", [0, 1, "appended"]],
+      ["1_declarative.items", ["replacement"], ["replacement"]],
+    ]) {
+      const result = await client.callTool({ name: "write_digital_twin", arguments: { path: field, data } });
+      assert.notEqual(result.isError, true);
+      assert.deepEqual(JSON.parse(await fs.readFile(dataPath, "utf8"))["1_declarative"].items, expected);
+    }
   });
 
   it("HTTP checks paths before database calls and retains cloud value parsing and root reads", { timeout: 10000 }, async (t) => {
@@ -226,7 +277,7 @@ describe("transport regressions with synthetic storage", () => {
     const token = await new SignJWT({ sub: "synthetic-user" })
       .setProtectedHeader({ alg: "RS256", kid: "synthetic" })
       .setIssuer(`${issuer}/`).setExpirationTime("5m").sign(privateKey);
-    let persisted = { "1_declarative": { existing: "keep" }, "2_collected": { x: 1 } };
+    let persisted = { "1_declarative": { existing: "keep", items: [0, 1] }, "2_collected": { x: 1 } };
     const initial = structuredClone(persisted);
     let databaseCalls = 0;
     const originalFetch = neonConfig.fetchFunction;
@@ -234,28 +285,28 @@ describe("transport regressions with synthetic storage", () => {
     neonConfig.fetchFunction = async (_url, options) => {
       databaseCalls++;
       const { query, params } = JSON.parse(options.body);
-      if (query.includes("SELECT data FROM digital_twins")) {
-        return Response.json({
-          fields: [{ name: "data", dataTypeID: 3802 }],
-          rows: [[JSON.stringify(persisted)]], rowCount: 1, command: "SELECT",
-        });
+      if (!query.startsWith("SELECT")) {
+        assert.match(query, /UPDATE "digital_twins"/);
+        assert.equal(params[0], "synthetic-user");
+        assert.deepEqual(JSON.parse(params[2]), persisted);
+        persisted = JSON.parse(params[1]);
       }
-      assert.match(query, /INSERT INTO digital_twins/);
-      assert.equal(params[0], "synthetic-user");
-      persisted = JSON.parse(params[1]);
-      return Response.json({ fields: [], rows: [], rowCount: 1, command: "INSERT" });
+      return Response.json({
+        fields: [{ name: "raw", dataTypeID: 25 }],
+        rows: [[JSON.stringify(persisted)]], rowCount: 1, command: query.split(" ")[0],
+      });
     };
     const env = {
       ORY_URL: issuer,
       DATABASE_URL: "postgresql://synthetic@ep-test.example.invalid/test",
     };
-    async function callTool(name, args) {
+    async function callTool(name, args, requestEnv = env) {
       const request = new Request("https://twin.example.invalid/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await worker.fetch(request, requestEnv);
       assert.equal(response.status, 200);
       return response.json();
     }
@@ -266,6 +317,15 @@ describe("transport regressions with synthetic storage", () => {
       assert.equal(databaseCalls, 0);
       assert.deepEqual(persisted, initial);
     }
+    const missing = await callTool("write_digital_twin", { path: "1_declarative.existing" });
+    assert.equal(missing.error.data.code, "invalid_data");
+    assert.equal(databaseCalls, 0);
+    for (const index of ["foo", "01", "1000000"]) {
+      const rejected = await callTool("write_digital_twin", { path: `1_declarative.items/${index}`, data: "blocked" });
+      assert.equal(rejected.error.code, -32000);
+      assert.deepEqual(persisted, initial);
+    }
+    const rejectedReads = databaseCalls;
     for (const root of ["", "/", "."]) {
       const response = await callTool("read_digital_twin", { path: root });
       assert.deepEqual(JSON.parse(response.result.content[0].text), initial);
@@ -277,8 +337,46 @@ describe("transport regressions with synthetic storage", () => {
     assert.equal(result.success, true);
     assert.equal(result.persisted, true);
     assert.deepEqual(persisted, {
-      ...initial, "1_declarative": { existing: "keep", goals: { learning: ["synthetic goal"] } },
+      ...initial, "1_declarative": { ...initial["1_declarative"], goals: { learning: ["synthetic goal"] } },
     });
-    assert.equal(databaseCalls, 5);
+    assert.equal(databaseCalls, rejectedReads + 5);
+    for (const [field, data, expected] of [
+      ["1_declarative.items/2", "appended", [0, 1, "appended"]],
+      ["1_declarative.items", ["replacement"], ["replacement"]],
+    ]) {
+      const saved = await callTool("write_digital_twin", { path: field, data });
+      assert.equal(JSON.parse(saved.result.content[0].text).success, true);
+      assert.deepEqual(persisted["1_declarative"].items, expected);
+    }
+
+    await callTool("write_digital_twin", { path: "1_declarative.message", data: { error: "stored value" } });
+    const messageRead = await callTool("read_digital_twin", { path: "1_declarative.message", include_revision: true });
+    assert.deepEqual(JSON.parse(messageRead.result.content[0].text).data, { error: "stored value" });
+    const versionedRead = await callTool("read_digital_twin", { path: "/", include_revision: true });
+    const snapshot = JSON.parse(versionedRead.result.content[0].text);
+    assert.deepEqual(snapshot.data, persisted);
+    assert.match(snapshot.revision, /^v1:[a-f0-9]{64}$/);
+    const strictWrite = await callTool("write_digital_twin", {
+      path: "1_declarative.strict", data: true, expected_revision: snapshot.revision,
+    });
+    assert.equal(JSON.parse(strictWrite.result.content[0].text).success, true);
+    const beforeConflict = structuredClone(persisted);
+    const conflict = await callTool("write_digital_twin", {
+      path: "1_declarative.blocked", data: true, expected_revision: snapshot.revision,
+    });
+    assert.equal(conflict.error.data.code, "revision_conflict");
+    assert.deepEqual(persisted, beforeConflict);
+    const callsBeforeInvalid = databaseCalls;
+    const invalid = await callTool("write_digital_twin", {
+      path: "1_declarative.blocked", data: true, expected_revision: null,
+    });
+    assert.equal(invalid.error.data.code, "invalid_revision");
+    assert.equal(databaseCalls, callsBeforeInvalid);
+    const unavailable = await callTool("write_digital_twin", {
+      path: "1_declarative.blocked", data: true,
+    }, { ORY_URL: issuer });
+    assert.equal(unavailable.error.data.code, "storage_unavailable");
+    assert.equal(databaseCalls, callsBeforeInvalid);
+    assert.deepEqual(persisted, beforeConflict);
   });
 });

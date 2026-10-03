@@ -11,6 +11,8 @@ import { neon } from "@neondatabase/serverless";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 import { normalizePath, writeUserTwin } from "./twin-path.js";
+import { createPostgresStore, TwinStoreError, storeErrorResult } from "./twin-store.js";
+import { CORE_TOOLS as tools, SERVER_VERSION } from "./tool-catalog.js";
 
 // ============================================
 // JWT Verification (ADR-IWE-012)
@@ -76,23 +78,10 @@ function mask(value, visibleChars = 6) {
 // Twin Data Storage
 // ============================================
 
-async function getTwinData(env, userId) {
-  if (!env.DATABASE_URL) return {};
-  const sql = neon(env.DATABASE_URL);
-  const rows = await sql`SELECT data FROM digital_twins WHERE user_id = ${userId}`;
-  return rows.length ? rows[0].data : {};
-}
-
-async function saveTwinData(env, userId, data) {
-  if (!env.DATABASE_URL) return false;
-  const sql = neon(env.DATABASE_URL);
-  await sql`
-    INSERT INTO digital_twins (user_id, data, updated_at)
-    VALUES (${userId}, ${JSON.stringify(data)}, NOW())
-    ON CONFLICT (user_id) DO UPDATE
-    SET data = EXCLUDED.data, updated_at = NOW()
-  `;
-  return true;
+function getTwinStore(env, userId) {
+  if (!env.DATABASE_URL) throw new TwinStoreError("storage_unavailable", "Digital twin database is not configured");
+  // Preserve the cloud search_path binding; local indicators is a separate configuration.
+  return createPostgresStore(neon(env.DATABASE_URL), userId);
 }
 
 function getByPath(obj, pathStr) {
@@ -192,8 +181,14 @@ function describeByPath(pathArg) {
   return indicatorContent;
 }
 
-async function readDigitalTwin(env, pathArg, userId) {
-  const twinData = await getTwinData(env, userId);
+async function readDigitalTwin(env, pathArg, userId, includeRevision) {
+  const snapshot = await getTwinStore(env, userId).readSnapshot();
+  const result = readTwinValue(snapshot.data, pathArg);
+  const found = !pathArg || pathArg === "/" || pathArg === "." || getByPath(snapshot.data, pathArg) !== undefined;
+  return includeRevision === true && found ? { data: result, revision: snapshot.revision } : result;
+}
+
+function readTwinValue(twinData, pathArg) {
   if (!pathArg || pathArg === "/" || pathArg === ".") return deepParseJSONStrings(twinData);
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
@@ -204,65 +199,26 @@ async function readDigitalTwin(env, pathArg, userId) {
   return value;
 }
 
-async function writeDigitalTwin(env, pathArg, value, userId) {
+async function writeDigitalTwin(env, pathArg, value, userId, expectedRevision) {
   let parsedValue = value;
   if (typeof value === "string") {
     try { parsedValue = JSON.parse(value); } catch {}
   }
   const result = await writeUserTwin(pathArg, parsedValue, {
     accessControl: METAMODEL.accessControl,
-    readData: () => getTwinData(env, userId),
-    writeData: (data) => saveTwinData(env, userId, data),
+    store: { mutate: (...args) => getTwinStore(env, userId).mutate(...args) },
+    expectedRevision,
   });
   return result.error ? result : { ...result, user: userId || "anonymous" };
 }
 
 // ============ MCP Protocol ============
 
-const tools = [
-  {
-    name: "describe_by_path",
-    description: "Describe the digital twin metamodel structure. Returns field names, types, and descriptions for a given path. Use empty path or '/' to list all categories.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: {
-          type: "string",
-          description: "Path in metamodel. Examples: '/' (root), '1_declarative', '1_declarative/1_2_goals', '1_declarative/1_2_goals/09_Цели обучения'",
-        },
-      },
-    },
-  },
-  {
-    name: "read_digital_twin",
-    description: "Read data from the authenticated user's digital twin by path. Use dot or slash notation for nested paths.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Path to data (e.g., '1_declarative/1_2_goals/09_Цели обучения')" },
-      },
-      required: ["path"],
-    },
-  },
-  {
-    name: "write_digital_twin",
-    description: "Write data to the authenticated user's digital twin by path. Only '1_declarative' category is writable by users.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Path to data" },
-        data: { type: ["object", "array", "string", "number", "boolean", "null"], description: "Data to write (any JSON value)" },
-      },
-      required: ["path", "data"],
-    },
-  },
-];
-
 async function callTool(env, name, args, userId) {
   switch (name) {
     case "describe_by_path": return describeByPath(args.path);
-    case "read_digital_twin": return await readDigitalTwin(env, args.path, userId);
-    case "write_digital_twin": return await writeDigitalTwin(env, args.path, args.data, userId);
+    case "read_digital_twin": return await readDigitalTwin(env, args.path, userId, args.include_revision);
+    case "write_digital_twin": return await writeDigitalTwin(env, args.path, args.data, userId, args.expected_revision);
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -278,16 +234,30 @@ async function handleMCP(env, message, userId) {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "digital-twin-mcp", version: "3.0.0" },
+          serverInfo: { name: "digital-twin-mcp", version: SERVER_VERSION },
         },
       };
     case "tools/list":
       return { jsonrpc: "2.0", id, result: { tools } };
     case "tools/call": {
       const { name, arguments: args } = params;
-      const result = await callTool(env, name, args || {}, userId);
+      let result;
+      try {
+        result = await callTool(env, name, args || {}, userId);
+      } catch (error) {
+        result = storeErrorResult(error);
+      }
       if (result?.error && typeof result.error === "string") {
-        return { jsonrpc: "2.0", id, error: { code: -32000, message: result.error } };
+        return {
+          jsonrpc: "2.0", id,
+          error: {
+            code: -32000, message: result.error,
+            ...(result.code && { data: {
+              code: result.code,
+              ...(result.current_revision && { current_revision: result.current_revision }),
+            } }),
+          },
+        };
       }
       return {
         jsonrpc: "2.0", id,
@@ -340,7 +310,7 @@ export default {
 
     // Health check
     if (url.pathname === "/health") {
-      return withCors(jsonResponse({ status: "ok", auth: "jwt-jwks" }));
+      return withCors(jsonResponse({ status: "ok", auth: "jwt-jwks", version: SERVER_VERSION }));
     }
 
     // MCP endpoint
@@ -348,9 +318,9 @@ export default {
       if (request.method !== "POST") {
         return withCors(jsonResponse({
           name: "digital-twin-mcp",
-          version: "3.0.0",
+          version: SERVER_VERSION,
           description: "Digital Twin MCP Server — JWT auth via Ory JWKS",
-          storage: env?.DATABASE_URL ? "persistent" : "ephemeral",
+          storage: env?.DATABASE_URL ? "persistent" : "unavailable",
           tools: tools.map(t => ({ name: t.name, description: t.description })),
         }));
       }
