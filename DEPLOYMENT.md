@@ -22,6 +22,8 @@ npm test
 
 `ORY_URL` and `DATABASE_URL` are Worker secrets. The Worker verifies bearer JWTs against Ory JWKS and stores twin data in PostgreSQL. Keep the database URL out of logs and documentation. `GET /health`, `GET /mcp`, and MCP `tools/list` without an `Authorization` header are public; all other MCP methods require a valid bearer token, which is verified before the request body is parsed. Bodies over 1 MiB are rejected. The Gateway checks subscription access before forwarding authenticated calls to this backend.
 
+**Production state (2026-11-01):** `GATEWAY_JWKS_URL` is set as a Worker secret and `/health` on both addresses reports `gateway_assertion: "enforced"`; the Gateway sends assertions to this backend (`auth: "assertion"`, `audience: "digital-twin-mcp"`). Any new deployment target must set the same secret, otherwise direct calls with an Ory token are accepted again. Rollback: delete the secret.
+
 Gateway-only access uses the Gateway assertion that gateway-mcp already mints for its `assertion` backends:
 
 - Set the Worker secret `GATEWAY_JWKS_URL` to the Gateway's public keys (`https://mcp.aisystant.com/gateway/.well-known/jwks.json`). From then on every authenticated call must carry `X-Gateway-Assertion`: an RS256 JWT with `iss=iwe-gateway`, `aud=digital-twin-mcp`, `purpose=registry`, a subject and at most 60 seconds of life. The user is taken from its subject; forwarded Ory tokens are ignored, so direct calls and tokens issued to other Ory clients are refused.
