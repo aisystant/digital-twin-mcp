@@ -30,7 +30,7 @@ export const CORE_TOOLS = [
   },
   {
     name: "write_digital_twin",
-    description: "Write a path under 1_declarative. Other categories are system-only. Compatibility: HTTP decodes a string holding a JSON object or array; any other string (\"42\", \"true\", \"null\") is stored as text.",
+    description: "Write a path under 1_declarative. Other categories are system-only. Compatibility: a string holding a JSON object or array is decoded into that structure, except at metamodel indicators whose format is not structured (text, number, date, time, enum), where it is stored as text; any other string (\"42\", \"true\", \"null\") is stored as text.",
     inputSchema: {
       type: "object",
       properties: {
