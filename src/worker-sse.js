@@ -294,11 +294,21 @@ function readTwinValue(twinData, pathArg) {
   return value;
 }
 
-async function writeDigitalTwin(env, pathArg, value, userId, expectedRevision) {
-  let parsedValue = value;
-  if (typeof value === "string") {
-    try { parsedValue = JSON.parse(value); } catch {}
+// A string holding a JSON object or array is stored as the structure it encodes (clients that
+// stringify structured values). Every other string stays text: "42", "true" and "null" are
+// not numbers, booleans or a cleared value.
+function decodeStructuredString(value) {
+  if (typeof value !== "string") return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" ? parsed : value;
+  } catch {
+    return value;
   }
+}
+
+async function writeDigitalTwin(env, pathArg, value, userId, expectedRevision) {
+  const parsedValue = decodeStructuredString(value);
   const result = await writeUserTwin(pathArg, parsedValue, {
     accessControl: METAMODEL.accessControl,
     store: { mutate: (...args) => getTwinStore(env, userId).mutate(...args) },
