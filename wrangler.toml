@@ -1,7 +1,8 @@
 name = "digital-twin-mcp"
 main = "src/worker-sse.js"
 compatibility_date = "2024-12-01"
-workers_dev = true
+# The workers.dev address bypasses the Gateway (audit 2026-11-01, F7).
+workers_dev = false
 
 [[routes]]
 pattern = "twin.aisystant.com/*"
@@ -19,3 +20,5 @@ CORS_ORIGIN = "*"
 # Secrets (set via `wrangler secret put`):
 # ORY_URL       - Ory Hydra base URL (e.g. https://auth.system-school.ru/hydra)
 # DATABASE_URL  - Neon PostgreSQL connection string (for digital_twins + subscription_grants)
+# JWT_AUDIENCE  - OAuth client (aud) the Gateway's tokens are issued for; unset = any Ory client accepted
+# GATEWAY_SHARED_SECRET - secret the Gateway sends in X-Gateway-Secret; unset = direct calls accepted

@@ -1,10 +1,10 @@
 /**
- * Audit 2026-11-01: reproductions of confirmed defects (docs/AUDIT-2026-11-01.md).
+ * Audit 2026-11-01: confirmed defects (docs/AUDIT-2026-11-01.md).
  *
- * Each test asserts the CORRECT behaviour and is marked `todo` while the defect
- * is open, so it is reported but does not fail CI. When a defect is fixed, the
- * test starts passing: remove its `todo` option in the same change so it
- * becomes a regular regression test.
+ * Fixed defects are regular regression tests. Open defects use knownDefect():
+ * the test body asserts the CORRECT behaviour; knownDefect passes while that
+ * assertion fails and turns RED once the defect is fixed, so a fix cannot land
+ * without converting the test into a regular one.
  */
 
 import { describe, it } from "node:test";
@@ -17,6 +17,19 @@ import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import worker from "./worker-sse.js";
+
+function knownDefect(id, body) {
+  return async (t) => {
+    let fixed = false;
+    try {
+      await body(t);
+      fixed = true;
+    } catch (error) {
+      t.diagnostic(`known defect ${id} still present: ${error.message.split("\n")[0]}`);
+    }
+    if (fixed) assert.fail(`${id} is fixed: replace knownDefect() with a regular test`);
+  };
+}
 
 // ---------- HTTP worker helpers ----------
 
@@ -42,15 +55,22 @@ function token(oryUrl, audience) {
     .setExpirationTime("5m").sign(privateKey);
 }
 
-function post(env, body, bearer) {
+function post(env, body, bearer, extraHeaders = {}) {
   return worker.fetch(new Request("https://audit.invalid/mcp", {
     method: "POST",
-    headers: { "content-type": "application/json", ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) },
+    headers: { "content-type": "application/json", ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...extraHeaders },
     body,
   }), env);
 }
 
+function silenceWarnings(t) {
+  const original = console.warn;
+  console.warn = () => {};
+  t.after(() => { console.warn = original; });
+}
+
 function silenceLogs(t) {
+  silenceWarnings(t);
   const original = console.log;
   const lines = [];
   console.log = (...args) => lines.push(args.map(String).join(" "));
@@ -62,29 +82,64 @@ const describeRoot = JSON.stringify({
   jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "describe_by_path", arguments: { path: "/" } },
 });
 
-describe("audit 2026-11-01: HTTP worker", () => {
-  it("rejects a token issued to another OAuth client (audience check)", {
-    todo: "F1: jwtVerify has no audience option; JWT_AUDIENCE is a proposed setting name",
-  }, async (t) => {
+const listTools = JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" });
+
+describe("audit 2026-11-01: HTTP worker (fixed)", () => {
+  it("F1: rejects a token issued to another OAuth client when JWT_AUDIENCE is set", async (t) => {
     silenceLogs(t);
     const ory = syntheticOry(t);
     const env = { ORY_URL: ory, JWT_AUDIENCE: "digital-twin-mcp" };
     const foreign = await post(env, describeRoot, await token(ory, "some-other-oauth-client"));
     assert.equal(foreign.status, 401);
+    assert.equal((await foreign.json()).error.data.reason, "invalid_token");
+    const own = await post(env, describeRoot, await token(ory, "digital-twin-mcp"));
+    assert.equal(own.status, 200);
+    assert.ok((await own.json()).result);
   });
 
-  it("answers malformed JSON with a JSON-RPC parse error instead of throwing", {
-    todo: "F4: request.json() is not guarded",
-  }, async (t) => {
+  it("F7: refuses requests without the Gateway secret when GATEWAY_SHARED_SECRET is set", async (t) => {
+    silenceLogs(t);
+    const ory = syntheticOry(t);
+    const env = { ORY_URL: ory, GATEWAY_SHARED_SECRET: "synthetic-gateway-secret" };
+    const bearer = await token(ory, "any");
+    for (const headers of [{}, { "X-Gateway-Secret": "wrong" }]) {
+      const direct = await post(env, describeRoot, bearer, headers);
+      assert.equal(direct.status, 403);
+      assert.equal((await direct.json()).error.data.reason, "gateway_required");
+    }
+    const directList = await post(env, listTools, undefined);
+    assert.equal(directList.status, 403);
+    const viaGateway = await post(env, describeRoot, bearer, { "X-Gateway-Secret": "synthetic-gateway-secret" });
+    assert.equal(viaGateway.status, 200);
+  });
+
+  it("keeps tools/list public without a token", async (t) => {
+    silenceLogs(t);
+    const response = await post({ ORY_URL: syntheticOry(t) }, listTools);
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray((await response.json()).result.tools));
+  });
+
+  it("F4: answers malformed JSON with a JSON-RPC parse error instead of throwing", async (t) => {
     silenceLogs(t);
     const response = await post({ ORY_URL: syntheticOry(t) }, "{not json");
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, -32700);
   });
 
-  it("answers tools/call without params with invalid params instead of throwing", {
-    todo: "F5: params is destructured without a check",
-  }, async (t) => {
+  it("verifies the token before parsing the body", async (t) => {
+    silenceLogs(t);
+    const response = await post({ ORY_URL: syntheticOry(t) }, "{not json", "not-a-valid-token");
+    assert.equal(response.status, 401);
+  });
+
+  it("rejects bodies larger than 1 MiB", async (t) => {
+    silenceLogs(t);
+    const response = await post({ ORY_URL: syntheticOry(t) }, JSON.stringify({ pad: "x".repeat(1024 * 1024) }));
+    assert.equal(response.status, 413);
+  });
+
+  it("F5: answers tools/call without params with invalid params instead of throwing", async (t) => {
     silenceLogs(t);
     const ory = syntheticOry(t);
     const response = await post({ ORY_URL: ory },
@@ -92,25 +147,24 @@ describe("audit 2026-11-01: HTTP worker", () => {
     assert.equal((await response.json()).error.code, -32602);
   });
 
-  it("does not write any part of DATABASE_URL to logs", {
-    todo: "F6: every request logs a DATABASE_URL prefix",
-  }, async (t) => {
+  it("F6: does not write any part of DATABASE_URL to logs", async (t) => {
     const lines = silenceLogs(t);
     await worker.fetch(new Request("https://audit.invalid/health"),
       { DATABASE_URL: "postgresql://db.invalid/synthetic" });
     assert.ok(!lines.some((line) => line.includes("postgresql://")), lines.join("\n"));
   });
+});
 
-  it("acknowledges a notification with 202 and no body (pre-2026-07-28 clients)", {
-    todo: "F8: notifications get a -32601 error body; relevant while old protocol versions are served",
-  }, async (t) => {
-    silenceLogs(t);
-    const ory = syntheticOry(t);
-    const response = await post({ ORY_URL: ory },
-      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), await token(ory, "any"));
-    assert.equal(response.status, 202);
-    assert.equal(await response.text(), "");
-  });
+describe("audit 2026-11-01: HTTP worker (open)", () => {
+  it("F8: acknowledges a notification with 202 and no body (pre-2026-07-28 clients)",
+    knownDefect("F8", async (t) => {
+      silenceLogs(t);
+      const ory = syntheticOry(t);
+      const response = await post({ ORY_URL: ory },
+        JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), await token(ory, "any"));
+      assert.equal(response.status, 202);
+      assert.equal(await response.text(), "");
+    }));
 });
 
 // ---------- stdio helpers ----------
@@ -143,26 +197,22 @@ async function stdioClient(t, initial = { "1_declarative": {} }) {
 
 const text = (result) => result.content[0].text;
 
-describe("audit 2026-11-01: stdio server", () => {
-  it("describe_by_path does not read files outside the metamodel directory", {
-    todo: "F2: path.join(METAMODEL_PATH, pathArg) without a containment check",
-    timeout: 10000,
-  }, async (t) => {
+describe("audit 2026-11-01: stdio server (open)", () => {
+  it("F2: describe_by_path does not read files outside the metamodel directory",
+    { timeout: 10000 }, knownDefect("F2", async (t) => {
     const client = await stdioClient(t);
     for (const escape of ["../outside-secret.txt", "../outside-secret"]) {
       const result = await client.callTool({ name: "describe_by_path", arguments: { path: escape } });
       assert.ok(!text(result).includes("SYNTHETIC-SECRET"), `read outside metamodel via ${escape}`);
     }
-  });
+  }));
 
-  it("returns a string written by the user as the same string", {
-    todo: "F3: deepParseJSONStrings/readTwinValue turn JSON-looking strings into arrays/objects",
-    timeout: 10000,
-  }, async (t) => {
+  it("F3: returns a string written by the user as the same string",
+    { timeout: 10000 }, knownDefect("F3", async (t) => {
     const client = await stdioClient(t);
     const value = "[1, 2]";
     await client.callTool({ name: "write_digital_twin", arguments: { path: "1_declarative.note", data: value } });
     const read = await client.callTool({ name: "read_digital_twin", arguments: { path: "1_declarative.note" } });
     assert.equal(JSON.parse(text(read)), value);
-  });
+  }));
 });

@@ -18,9 +18,14 @@ npm test
 
 ## Current Worker configuration
 
-`wrangler.toml` names the Worker `digital-twin-mcp`, uses `src/worker-sse.js` as its entrypoint, and routes `twin.aisystant.com/*` to it. The Worker also has a `workers.dev` address. The configured environment is the default environment; there are no `[env.staging]` or `[env.production]` sections.
+`wrangler.toml` names the Worker `digital-twin-mcp`, uses `src/worker-sse.js` as its entrypoint, and routes `twin.aisystant.com/*` to it. The `workers.dev` address is disabled (`workers_dev = false`) because it bypasses the Gateway. The configured environment is the default environment; there are no `[env.staging]` or `[env.production]` sections.
 
-`ORY_URL` and `DATABASE_URL` are Worker secrets. The Worker verifies bearer JWTs against Ory JWKS and stores twin data in PostgreSQL. Keep the database URL out of logs and documentation. `GET /health`, `GET /mcp`, and MCP `tools/list` are public; all other MCP methods require a valid bearer token. The Gateway checks subscription access before forwarding authenticated calls to this backend.
+`ORY_URL` and `DATABASE_URL` are Worker secrets. The Worker verifies bearer JWTs against Ory JWKS and stores twin data in PostgreSQL. Keep the database URL out of logs and documentation. `GET /health`, `GET /mcp`, and MCP `tools/list` without an `Authorization` header are public; all other MCP methods require a valid bearer token, which is verified before the request body is parsed. Bodies over 1 MiB are rejected. The Gateway checks subscription access before forwarding authenticated calls to this backend.
+
+Two optional secrets harden that trust:
+
+- `JWT_AUDIENCE` — the OAuth client (`aud`) the Gateway's tokens are issued for. When set, tokens issued to any other client of the same Ory project are rejected. When unset, any Ory client is accepted and the Worker logs a warning.
+- `GATEWAY_SHARED_SECRET` — when set, every MCP `POST` must carry it in the `X-Gateway-Secret` header, so calls that reach the route directly are refused with 403. Configure the Gateway to send the header before setting this secret, otherwise all MCP calls fail.
 
 ## Local development
 
