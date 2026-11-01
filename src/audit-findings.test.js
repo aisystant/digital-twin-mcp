@@ -48,6 +48,29 @@ function syntheticOry(t) {
   return oryUrl;
 }
 
+let gatewayCounter = 0;
+
+/** Synthetic Gateway publishing the same test key at /gateway/.well-known/jwks.json. */
+function syntheticGateway(t) {
+  const gatewayUrl = `https://gateway-${++gatewayCounter}.audit.invalid`;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => String(input).startsWith(gatewayUrl)
+    ? new Response(JSON.stringify({ keys: [jwk] }), { headers: { "content-type": "application/json" } })
+    : realFetch(input, init);
+  t.after(() => { globalThis.fetch = realFetch; });
+  return gatewayUrl;
+}
+
+/** Mirrors gateway-mcp mintGatewayAssertion(env, sub, "registry", audience). */
+function assertion({ audience = "digital-twin-mcp", issuer = "iwe-gateway", purpose = "registry",
+  key = privateKey, expiresIn = "60s" } = {}) {
+  return new SignJWT({ purpose })
+    .setProtectedHeader({ alg: "RS256", kid: "audit-key" })
+    .setIssuer(issuer).setAudience(audience).setSubject("synthetic-user")
+    .setJti(crypto.randomUUID()).setIssuedAt().setExpirationTime(expiresIn)
+    .sign(key);
+}
+
 function token(oryUrl, audience) {
   return new SignJWT({})
     .setProtectedHeader({ alg: "RS256", kid: "audit-key" })
@@ -85,32 +108,47 @@ const describeRoot = JSON.stringify({
 const listTools = JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" });
 
 describe("audit 2026-11-01: HTTP worker (fixed)", () => {
-  it("F1: rejects a token issued to another OAuth client when JWT_AUDIENCE is set", async (t) => {
+  it("legacy mode (no GATEWAY_JWKS_URL) still accepts a forwarded Ory token", async (t) => {
     silenceLogs(t);
     const ory = syntheticOry(t);
-    const env = { ORY_URL: ory, JWT_AUDIENCE: "digital-twin-mcp" };
-    const foreign = await post(env, describeRoot, await token(ory, "some-other-oauth-client"));
-    assert.equal(foreign.status, 401);
-    assert.equal((await foreign.json()).error.data.reason, "invalid_token");
-    const own = await post(env, describeRoot, await token(ory, "digital-twin-mcp"));
-    assert.equal(own.status, 200);
-    assert.ok((await own.json()).result);
+    const response = await post({ ORY_URL: ory }, describeRoot, await token(ory, "any"));
+    assert.equal(response.status, 200);
   });
 
-  it("F7: refuses requests without the Gateway secret when GATEWAY_SHARED_SECRET is set", async (t) => {
+  it("F1/F7: with GATEWAY_JWKS_URL set, an Ory token alone is refused (foreign client or direct call)", async (t) => {
     silenceLogs(t);
     const ory = syntheticOry(t);
-    const env = { ORY_URL: ory, GATEWAY_SHARED_SECRET: "synthetic-gateway-secret" };
-    const bearer = await token(ory, "any");
-    for (const headers of [{}, { "X-Gateway-Secret": "wrong" }]) {
-      const direct = await post(env, describeRoot, bearer, headers);
-      assert.equal(direct.status, 403);
-      assert.equal((await direct.json()).error.data.reason, "gateway_required");
+    const env = { ORY_URL: ory, GATEWAY_JWKS_URL: `${syntheticGateway(t)}/gateway/.well-known/jwks.json` };
+    const response = await post(env, describeRoot, await token(ory, "some-other-oauth-client"));
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.data.reason, "gateway_assertion_required");
+  });
+
+  it("F1/F7: accepts a valid Gateway assertion sent alongside the forwarded user token", async (t) => {
+    silenceLogs(t);
+    const env = { GATEWAY_JWKS_URL: `${syntheticGateway(t)}/gateway/.well-known/jwks.json` };
+    // gateway-mcp sends the assertion ADDITIVE to Authorization; an opaque token must not matter.
+    const response = await post(env, describeRoot, "opaque-claude-ai-token", { "X-Gateway-Assertion": await assertion() });
+    assert.equal(response.status, 200);
+    assert.ok((await response.json()).result);
+  });
+
+  it("F1/F7: rejects assertions with a wrong audience, issuer, purpose, signer or expiry", async (t) => {
+    silenceLogs(t);
+    const env = { GATEWAY_JWKS_URL: `${syntheticGateway(t)}/gateway/.well-known/jwks.json` };
+    const { privateKey: stranger } = await generateKeyPair("RS256");
+    const bad = [
+      await assertion({ audience: "checklist-mcp" }),
+      await assertion({ issuer: "someone-else" }),
+      await assertion({ purpose: "byok" }),
+      await assertion({ key: stranger }),
+      await assertion({ expiresIn: "-1s" }),
+    ];
+    for (const value of bad) {
+      const response = await post(env, describeRoot, undefined, { "X-Gateway-Assertion": value });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error.data.reason, "invalid_gateway_assertion");
     }
-    const directList = await post(env, listTools, undefined);
-    assert.equal(directList.status, 403);
-    const viaGateway = await post(env, describeRoot, bearer, { "X-Gateway-Secret": "synthetic-gateway-secret" });
-    assert.equal(viaGateway.status, 200);
   });
 
   it("keeps tools/list public without a token", async (t) => {
