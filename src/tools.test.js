@@ -14,7 +14,6 @@ import assert from "node:assert";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { ProfileCache } from "./cache.js";
 import { normalizePath, setByPath, writeUserTwin } from "./twin-path.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

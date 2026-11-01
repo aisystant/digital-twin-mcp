@@ -9,14 +9,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import worker from "./worker-sse.js";
+import { writeAndRead } from "./http-write-harness.js";
 
 function knownDefect(id, body) {
   return async (t) => {
@@ -228,52 +223,10 @@ describe("audit 2026-11-01: HTTP worker (open)", () => {
     }));
 });
 
-// ---------- stdio helpers ----------
-
-async function stdioClient(t, initial = { "1_declarative": {} }) {
-  const repo = fileURLToPath(new URL("..", import.meta.url));
-  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "dt-audit-"));
-  const client = new Client({ name: "audit-findings-test", version: "1.0.0" });
-  t.after(async () => {
-    await client.close();
-    await fs.rm(fixture, { recursive: true, force: true });
-  });
-  await fs.cp(path.join(repo, "src"), path.join(fixture, "src"), { recursive: true });
-  await fs.cp(path.join(repo, "metamodel"), path.join(fixture, "metamodel"), { recursive: true });
-  await fs.copyFile(path.join(repo, "package.json"), path.join(fixture, "package.json"));
-  await fs.symlink(path.join(repo, "node_modules"), path.join(fixture, "node_modules"), "dir");
-  await fs.mkdir(path.join(fixture, "data"));
-  await fs.writeFile(path.join(fixture, "data", "twin.json"), JSON.stringify(initial));
-  await fs.writeFile(path.join(fixture, "outside-secret.txt"), "SYNTHETIC-SECRET");
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [path.join(fixture, "src", "index.js")],
-    env: { DATABASE_URL: "", DT_USER_ID: "", LEARNING_URL: "" },
-    stderr: "pipe",
-  });
-  await client.connect(transport);
-  transport.stderr?.resume();
-  return client;
-}
-
-const text = (result) => result.content[0].text;
-
-describe("audit 2026-11-01: stdio server (open)", () => {
-  it("F2: describe_by_path does not read files outside the metamodel directory",
-    { timeout: 10000 }, knownDefect("F2", async (t) => {
-    const client = await stdioClient(t);
-    for (const escape of ["../outside-secret.txt", "../outside-secret"]) {
-      const result = await client.callTool({ name: "describe_by_path", arguments: { path: escape } });
-      assert.ok(!text(result).includes("SYNTHETIC-SECRET"), `read outside metamodel via ${escape}`);
-    }
-  }));
-
+describe("audit 2026-11-01: write decoding (open)", () => {
   it("F3: returns a string written by the user as the same string",
     { timeout: 10000 }, knownDefect("F3", async (t) => {
-    const client = await stdioClient(t);
-    const value = "[1, 2]";
-    await client.callTool({ name: "write_digital_twin", arguments: { path: "1_declarative.note", data: value } });
-    const read = await client.callTool({ name: "read_digital_twin", arguments: { path: "1_declarative.note" } });
-    assert.equal(JSON.parse(text(read)), value);
+    const stored = await writeAndRead(t, [["note", "[1, 2]"]]);
+    assert.equal(stored.note, "[1, 2]");
   }));
 });

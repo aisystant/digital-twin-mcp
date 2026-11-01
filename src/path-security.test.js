@@ -1,11 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { neonConfig } from "@neondatabase/serverless";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { METAMODEL } from "./metamodel-data.js";
@@ -201,71 +195,6 @@ describe("trusted fixed-path system writes", () => {
 });
 
 describe("transport regressions with synthetic storage", () => {
-  it("stdio rejects unsafe writes without changing the file and retains root reads", { timeout: 10000 }, async (t) => {
-    const repo = fileURLToPath(new URL("..", import.meta.url));
-    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "dt-path-security-"));
-    const client = new Client({ name: "path-security-test", version: "1.0.0" });
-    t.after(async () => {
-      await client.close();
-      await fs.rm(fixture, { recursive: true, force: true });
-    });
-    await fs.cp(path.join(repo, "src"), path.join(fixture, "src"), { recursive: true });
-    await fs.copyFile(path.join(repo, "package.json"), path.join(fixture, "package.json"));
-    await fs.symlink(path.join(repo, "node_modules"), path.join(fixture, "node_modules"), "dir");
-    await fs.mkdir(path.join(fixture, "data"));
-    const dataPath = path.join(fixture, "data", "twin.json");
-    const initial = { "1_declarative": { existing: "keep", items: [0, 1] }, "2_collected": { x: 1 } };
-    const initialBytes = JSON.stringify(initial);
-    await fs.writeFile(dataPath, initialBytes);
-    const transport = new StdioClientTransport({
-      command: process.execPath,
-      args: [path.join(fixture, "src", "index.js")],
-      env: { DATABASE_URL: "", DT_USER_ID: "", LEARNING_URL: "" },
-      stderr: "pipe",
-    });
-    await client.connect(transport);
-    transport.stderr?.resume();
-
-    for (const unsafePath of INVALID_PATHS) {
-      const result = await client.callTool({
-        name: "write_digital_twin", arguments: { path: unsafePath, data: "blocked" },
-      });
-      assert.equal(result.isError, true, `Expected error for ${JSON.stringify(unsafePath)}`);
-      assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
-    }
-    const missing = await client.callTool({ name: "write_digital_twin", arguments: { path: "1_declarative.existing" } });
-    assert.equal(missing.isError, true);
-    assert.equal(JSON.parse(missing.content[0].text).code, "invalid_data");
-    assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
-    for (const index of ["foo", "01", "1000000"]) {
-      const result = await client.callTool({ name: "write_digital_twin", arguments: { path: `1_declarative.items/${index}`, data: "blocked" } });
-      assert.equal(result.isError, true);
-      assert.equal(await fs.readFile(dataPath, "utf8"), initialBytes);
-    }
-    for (const root of ["", "/", "."]) {
-      const result = await client.callTool({ name: "read_digital_twin", arguments: { path: root } });
-      assert.deepEqual(JSON.parse(result.content[0].text), initial);
-    }
-    const value = ["synthetic goal"];
-    const result = await client.callTool({
-      name: "write_digital_twin",
-      arguments: { path: "/1_declarative/goals.learning/", data: value },
-    });
-    assert.notEqual(result.isError, true);
-    const persisted = JSON.parse(await fs.readFile(dataPath, "utf8"));
-    assert.deepEqual(persisted, {
-      ...initial, "1_declarative": { ...initial["1_declarative"], goals: { learning: value } },
-    });
-    for (const [field, data, expected] of [
-      ["1_declarative.items/2", "appended", [0, 1, "appended"]],
-      ["1_declarative.items", ["replacement"], ["replacement"]],
-    ]) {
-      const result = await client.callTool({ name: "write_digital_twin", arguments: { path: field, data } });
-      assert.notEqual(result.isError, true);
-      assert.deepEqual(JSON.parse(await fs.readFile(dataPath, "utf8"))["1_declarative"].items, expected);
-    }
-  });
-
   it("HTTP checks paths before database calls and retains cloud value parsing and root reads", { timeout: 10000 }, async (t) => {
     t.mock.method(console, "log", () => {});
     const { publicKey, privateKey } = await generateKeyPair("RS256");

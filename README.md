@@ -10,10 +10,10 @@ This server implements a metamodel-driven approach with 3 shared MCP tools, 4 lo
 
 ### Key Features
 
-- **3 shared MCP tools + 4 stdio extensions** for metamodel exploration and data management
+- **3 MCP tools** for metamodel exploration and data management
 - **4-Type Classification** (IND.1-4) with access control
 - **65+ Indicators** organized in hierarchical structure
-- **Dual Deployment** - stdio for local MCP clients + HTTP API for Cloudflare Workers
+- **HTTP deployment** - a Cloudflare Worker (a stdio server for local clients existed until 2026-11-01 and was removed; see git history)
 
 ## Architecture
 
@@ -28,7 +28,7 @@ This server implements a metamodel-driven approach with 3 shared MCP tools, 4 lo
                ▼
 ┌─────────────────────────────────────┐
 │  MCP Server (this project)          │
-│  - 3 core + 4 stdio extensions     │
+│  - 3 tools                          │
 │  - Access control (IND.1 writable)  │
 │  - Metamodel-driven                 │
 └──────────────┬──────────────────────┘
@@ -67,28 +67,7 @@ npm install
 
 ## Usage
 
-### Option 1: Local MCP Server (stdio)
-
-For use with MCP clients like Claude Desktop:
-
-```bash
-node src/index.js
-```
-
-Add to your MCP client configuration:
-
-```json
-{
-  "mcpServers": {
-    "digital-twin": {
-      "command": "node",
-      "args": ["/path/to/digital-twin-mcp/src/index.js"]
-    }
-  }
-}
-```
-
-### Option 2: Cloudflare Workers (HTTP API)
+### Cloudflare Workers (HTTP API)
 
 #### Local Development
 
@@ -208,12 +187,6 @@ Run tests:
 npm test
 ```
 
-Test stdio server directly:
-
-```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node src/index.js
-```
-
 ## Development
 
 ### Write path security
@@ -245,12 +218,9 @@ results do not establish cloud readiness, or vice versa.
 ```
 digital-twin-mcp/
 ├── src/
-│   ├── index.js              # MCP server (stdio, file-based storage)
 │   ├── worker-sse.js         # Cloudflare Worker (PostgreSQL/Neon storage)
 │   └── metamodel-data.js     # Generated metamodel data
 ├── metamodel/                # MD files defining indicators
-├── data/
-│   └── twin.json             # Twin data store (stdio mode only)
 ├── scripts/
 │   └── build-metamodel.js    # Regenerate metamodel-data.js
 ├── package.json
@@ -296,11 +266,9 @@ MIT
 
 ## Concurrent writes and content revisions
 
-The shared catalog is `src/tool-catalog.js`: HTTP exposes three core tools; stdio
-also exposes `dt_get_profile_rcs`, `dt_update_profile_rcs`, `dt_snapshot_rcs`, and
-`dt_get_cp_profile`. All transports report the release version from `package.json`.
-This does not make all transport behavior identical: HTTP continues to parse a
-JSON-encoded string passed as `data`; stdio stores it as a literal string.
+The tool catalog is `src/tool-catalog.js`: three tools, one release version from `package.json`.
+A string passed as `data` is decoded only when it holds a JSON object or array; any other
+string ("42", "true", "null") is stored as text.
 
 Writes require an explicit `data` value (including `null` when intended).
 Within arrays, paths accept only canonical non-negative integer indices: an
@@ -338,25 +306,13 @@ physical stores. This release neither moves data nor unifies their connections.
 Missing cloud database configuration returns `storage_unavailable`, never a
 successful unpersisted write.
 
-The local file backend retains the plain `data/twin.json` format. Cooperating
-processes lock its resolved path through the whole read/update cycle, write a
-private temporary file, sync it, atomically rename it, and sync the directory.
-A lock timeout returns `storage_locked`; locks are never stolen by age. After a
-crash, stop all processes using that file, establish that its owner has exited,
-and only then remove the adjacent `.lock`. A replaced lock is not removed by its
-former owner. `storage_outcome_unknown` after rename requires re-reading before
-retrying. Direct file writers that ignore this locking protocol are outside its
-guarantee. Use a local filesystem, not a network filesystem.
-
-### Development verification
-
 Install the committed dependency snapshot with `npm ci`. Use Node.js 22+ and PostgreSQL 16+ command-line tools (`psql`, `initdb`, `pg_ctl`)
 on `PATH`. `npm test` creates and removes its own temporary PostgreSQL cluster
-and synthetic twin files; it never loads `data/twin.json` from your working copy.
+and synthetic data; it never touches your working data.
 Alternatively, set `DT_TEST_POSTGRES_URL` to a disposable local database named
 `dt_cas_test`. CI supplies that database in a PostgreSQL service container.
 Tests exercise the installed Neon SDK against real PostgreSQL statements,
-concurrent Node processes, authenticated HTTP and stdio contracts, and workerd
+authenticated HTTP contracts, and workerd
 through Miniflare. The local Neon HTTP test adapter is not a production Neon
 network/connectivity test.
 
