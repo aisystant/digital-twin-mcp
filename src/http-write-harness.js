@@ -7,6 +7,12 @@ let issuerCounter = 0;
 
 // Writes through the HTTP worker against a faked Neon endpoint and returns what was persisted.
 export async function writeAndRead(t, writes) {
+  return (await writeThenRead(t, writes, [])).stored;
+}
+
+// Same, then reads each path back through read_digital_twin; returns { stored, read } where read
+// holds the raw response text (a string value is returned as-is, structures as JSON).
+export async function writeThenRead(t, writes, readPaths) {
   t.mock.method(console, "log", () => {});
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const publicJwk = { ...await exportJWK(publicKey), kid: "synthetic", alg: "RS256", use: "sig" };
@@ -40,5 +46,17 @@ export async function writeAndRead(t, writes) {
     const body = await response.json();
     assert.equal(JSON.parse(body.result.content[0].text).success, true, `write of ${field}`);
   }
-  return persisted["1_declarative"];
+  const read = {};
+  for (const path of readPaths) {
+    const response = await worker.fetch(new Request("https://twin.example.invalid/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 2, method: "tools/call",
+        params: { name: "read_digital_twin", arguments: { path: `1_declarative.${path}` } },
+      }),
+    }), env);
+    read[path] = (await response.json()).result.content[0].text;
+  }
+  return { stored: persisted["1_declarative"], read };
 }

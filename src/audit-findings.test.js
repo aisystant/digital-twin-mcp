@@ -153,6 +153,9 @@ describe("audit 2026-11-01: HTTP worker (fixed)", () => {
     const on = await (await worker.fetch(new Request("https://audit.invalid/health"),
       { GATEWAY_JWKS_URL: "https://gateway.audit.invalid/gateway/.well-known/jwks.json" })).json();
     assert.equal(on.gateway_assertion, "enforced");
+    assert.equal(off.commit, null);
+    const deployed = await (await worker.fetch(new Request("https://audit.invalid/health"), { GIT_COMMIT: "abc123" })).json();
+    assert.equal(deployed.commit, "abc123");
   });
 
   it("logs how each MCP call authenticated, telling Gateway calls from direct ones, without user ids", async (t) => {
@@ -212,15 +215,14 @@ describe("audit 2026-11-01: HTTP worker (fixed)", () => {
 });
 
 describe("audit 2026-11-01: HTTP worker (open)", () => {
-  it("F8: acknowledges a notification with 202 and no body (pre-2026-07-28 clients)",
-    knownDefect("F8", async (t) => {
-      silenceLogs(t);
-      const ory = syntheticOry(t);
-      const response = await post({ ORY_URL: ory },
-        JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), await token(ory, "any"));
-      assert.equal(response.status, 202);
-      assert.equal(await response.text(), "");
-    }));
+  it("F8: acknowledges a notification with 202 and no body (pre-2026-07-28 clients)", async (t) => {
+    silenceLogs(t);
+    const ory = syntheticOry(t);
+    const response = await post({ ORY_URL: ory },
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), await token(ory, "any"));
+    assert.equal(response.status, 202);
+    assert.equal(await response.text(), "");
+  });
 });
 
 describe("audit 2026-11-01: write decoding (open)", () => {

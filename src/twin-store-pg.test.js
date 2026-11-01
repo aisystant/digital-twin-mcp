@@ -76,8 +76,11 @@ before(async () => {
     await psql("CREATE DATABASE dt_cas_test;");
     dbUrl = `postgresql://dt_test@127.0.0.1:${port}/dt_cas_test`;
   }
+  // The production schema comes from the migration file, applied to both schemas under test.
+  const migration = await fs.readFile(new URL("../migrations/001_digital_twins.sql", import.meta.url), "utf8");
   await psql(`CREATE SCHEMA dt_override;
-    CREATE TABLE public.digital_twins (user_id TEXT PRIMARY KEY, data JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ DEFAULT NOW());`);
+    SET search_path TO public; ${migration}
+    SET search_path TO dt_override; ${migration}`);
   fetchBefore = neonConfig.fetchFunction;
   neonConfig.fetchFunction = neonFetch;
 });
@@ -94,7 +97,7 @@ const sql = neon("postgresql://dt_test@localhost/dt_cas_test");
 
 describe("real PostgreSQL with the Neon SDK", () => {
   it("supports a configured schema, parameterized user IDs and exact untouched numeric values", async () => {
-    const store = createPostgresStore(sql, "synthetic' user", { schema: "dt_override", ensureTable: true });
+    const store = createPostgresStore(sql, "synthetic' user", { schema: "dt_override" });
     await store.mutate((data) => setByPath(data, "1_declarative.x", "saved"));
     assert.equal((await store.readSnapshot()).data["1_declarative"].x, "saved");
     assert.equal(await psql("SELECT count(*) FROM public.digital_twins;"), "0");

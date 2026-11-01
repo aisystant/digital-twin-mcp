@@ -189,19 +189,41 @@ function getByPath(obj, pathStr) {
   return current;
 }
 
-function deepParseJSONStrings(obj) {
+// Metamodel formats whose values are structures. A string written to or stored at an indicator
+// with any other format (text, number, date, time, enum) is user text and is never decoded.
+const STRUCTURED_FORMAT = /^(object|structured_object|checklist|list\[.*\])$/;
+
+function indicatorFormat(parts) {
+  if (parts.length !== 3) return undefined;
+  const content = getIndicator(`${parts[0]}/${parts[1]}`, parts[2]);
+  return content?.match(/^\*\*Format:\*\*\s*(.+)$/m)?.[1].trim();
+}
+
+// True for a known metamodel indicator with a non-structured format (audit 2026-11-01, F3).
+// Paths outside the metamodel keep the legacy decoding for compatibility.
+function keepsText(parts) {
+  const format = indicatorFormat(parts);
+  return format !== undefined && !STRUCTURED_FORMAT.test(format);
+}
+
+function looksStructured(value) {
+  return typeof value === "string" && (value.startsWith("{") || value.startsWith("["));
+}
+
+function deepParseJSONStrings(obj, parts = []) {
   if (typeof obj !== "object" || obj === null) return obj;
-  if (Array.isArray(obj)) return obj.map(deepParseJSONStrings);
+  if (Array.isArray(obj)) return obj.map((item, i) => deepParseJSONStrings(item, [...parts, String(i)]));
   const result = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+    const childParts = [...parts, key];
+    if (looksStructured(value) && !keepsText(childParts)) {
       try {
-        result[key] = deepParseJSONStrings(JSON.parse(value));
+        result[key] = deepParseJSONStrings(JSON.parse(value), childParts);
       } catch {
         result[key] = value;
       }
     } else if (typeof value === "object" && value !== null) {
-      result[key] = deepParseJSONStrings(value);
+      result[key] = deepParseJSONStrings(value, childParts);
     } else {
       result[key] = value;
     }
@@ -287,16 +309,17 @@ function readTwinValue(twinData, pathArg) {
   if (!pathArg || pathArg === "/" || pathArg === ".") return deepParseJSONStrings(twinData);
   const value = getByPath(twinData, pathArg);
   if (value === undefined) return { error: `Path not found: ${pathArg}` };
-  if (typeof value === "string" && (value.startsWith("{") || value.startsWith("["))) {
+  const parts = normalizePath(pathArg).split(".");
+  if (looksStructured(value) && !keepsText(parts)) {
     try { return JSON.parse(value); } catch {}
   }
-  if (typeof value === "object" && value !== null) return deepParseJSONStrings(value);
+  if (typeof value === "object" && value !== null) return deepParseJSONStrings(value, parts);
   return value;
 }
 
 // A string holding a JSON object or array is stored as the structure it encodes (clients that
-// stringify structured values). Every other string stays text: "42", "true" and "null" are
-// not numbers, booleans or a cleared value.
+// stringify structured values), except at metamodel indicators with a non-structured format.
+// Every other string stays text: "42", "true" and "null" are not numbers, booleans or a cleared value.
 function decodeStructuredString(value) {
   if (typeof value !== "string") return value;
   try {
@@ -308,7 +331,8 @@ function decodeStructuredString(value) {
 }
 
 async function writeDigitalTwin(env, pathArg, value, userId, expectedRevision) {
-  const parsedValue = decodeStructuredString(value);
+  const textOnly = typeof pathArg === "string" && keepsText(normalizePath(pathArg).split("."));
+  const parsedValue = textOnly ? value : decodeStructuredString(value);
   const result = await writeUserTwin(pathArg, parsedValue, {
     accessControl: METAMODEL.accessControl,
     store: { mutate: (...args) => getTwinStore(env, userId).mutate(...args) },
@@ -418,6 +442,8 @@ export default {
     if (url.pathname === "/health") {
       return withCors(jsonResponse({
         status: "ok", auth: "jwt-jwks", version: SERVER_VERSION,
+        // Set by the deploy workflow (--var GIT_COMMIT); identifies the exact deployed source.
+        commit: env.GIT_COMMIT ?? null,
         // Shows an unfinished rollout: "off" means direct calls with an Ory token are still accepted.
         gateway_assertion: env.GATEWAY_JWKS_URL ? "enforced" : "off",
       }));
@@ -456,6 +482,11 @@ export default {
 
       // Subscription check delegated to Gateway (ADR-IWE-012): backends trust Gateway.
       // With GATEWAY_JWKS_URL set, that trust is enforced by the Gateway assertion.
+
+      // JSON-RPC notifications (no id) get no response body (MCP Streamable HTTP: 202 Accepted).
+      if (!("id" in message) && typeof message.method === "string" && message.method.startsWith("notifications/")) {
+        return withCors(new Response(null, { status: 202 }));
+      }
 
       const response = await handleMCP(env, message, userId);
       return withCors(jsonResponse(response));
