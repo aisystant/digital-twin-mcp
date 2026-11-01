@@ -1,6 +1,8 @@
 name = "digital-twin-mcp"
 main = "src/worker-sse.js"
 compatibility_date = "2024-12-01"
+# Kept on: gateway-mcp documents DIGITAL_TWIN_MCP_URL as the workers.dev address. Direct calls
+# are refused once GATEWAY_JWKS_URL is set; disable only after the Gateway URL is confirmed.
 workers_dev = true
 
 [[routes]]
@@ -19,3 +21,5 @@ CORS_ORIGIN = "*"
 # Secrets (set via `wrangler secret put`):
 # ORY_URL       - Ory Hydra base URL (e.g. https://auth.system-school.ru/hydra)
 # DATABASE_URL  - Neon PostgreSQL connection string (for digital_twins + subscription_grants)
+# GATEWAY_JWKS_URL - Gateway public keys (https://mcp.aisystant.com/gateway/.well-known/jwks.json);
+#                  set = only Gateway assertions (aud=digital-twin-mcp) are accepted, Ory tokens are not

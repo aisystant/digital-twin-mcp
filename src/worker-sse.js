@@ -28,6 +28,8 @@ function getJwks(oryUrl) {
   return _jwksCache.get(oryUrl);
 }
 
+// Legacy path: the Gateway forwards the caller's Ory token. Ory tokens carry no audience
+// for this server, so a token issued to any client of the project is accepted here.
 async function verifyJwtLocally(oryUrl, token) {
   try {
     const jwks = getJwks(oryUrl);
@@ -67,11 +69,104 @@ async function checkSubscription(databaseUrl, oryId) {
 // Helpers
 // ============================================
 
-function mask(value, visibleChars = 6) {
-  if (!value) return "(not set)";
-  const str = String(value);
-  if (str.length <= visibleChars) return str;
-  return str.substring(0, visibleChars) + "...";
+const MAX_BODY_BYTES = 1024 * 1024;
+// Gateway assertion (gateway-mcp "assertion" backend auth, ADR-IWE-018): the Gateway mints a
+// 60-second RS256 JWT per call, iss=iwe-gateway, aud=<backend audience>, sub=<user>,
+// purpose=registry, and sends it in X-Gateway-Assertion. It cannot be obtained without
+// passing the Gateway, and an Ory token issued to another client is not one.
+const GATEWAY_ASSERTION_HEADER = "X-Gateway-Assertion";
+const GATEWAY_ASSERTION_ISSUER = "iwe-gateway";
+const GATEWAY_ASSERTION_AUDIENCE = "digital-twin-mcp";
+const GATEWAY_ASSERTION_PURPOSE = "registry";
+
+async function verifyGatewayAssertion(jwksUrl, assertion) {
+  try {
+    if (!_jwksCache.has(jwksUrl)) _jwksCache.set(jwksUrl, createRemoteJWKSet(new URL(jwksUrl)));
+    const { payload } = await jwtVerify(assertion, _jwksCache.get(jwksUrl), {
+      issuer: GATEWAY_ASSERTION_ISSUER,
+      audience: GATEWAY_ASSERTION_AUDIENCE,
+      algorithms: ["RS256"],
+      requiredClaims: ["sub", "exp", "iat"],
+      maxTokenAge: "120s",
+    });
+    if (payload.purpose !== GATEWAY_ASSERTION_PURPOSE || typeof payload.sub !== "string" || !payload.sub) return null;
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+let warnedLegacyAuth = false;
+function warnIfLegacyAuth(env) {
+  if (warnedLegacyAuth || env.GATEWAY_JWKS_URL) return;
+  warnedLegacyAuth = true;
+  console.warn("[auth] GATEWAY_JWKS_URL is not set: forwarded Ory tokens are accepted, including direct calls bypassing the Gateway");
+}
+
+const unauthorized = (reason, headers = {}) => rpcErrorResponse(null, -32001, "Unauthorized", 401, { reason }, headers);
+const invalidToken = (reason = "invalid_token") => unauthorized(reason, { "WWW-Authenticate": "Bearer error=\"invalid_token\"" });
+
+// Returns { userId, via } (userId null for an anonymous caller) or { error: Response, via }.
+async function authenticate(request, env) {
+  if (env.GATEWAY_JWKS_URL) {
+    const assertion = request.headers.get(GATEWAY_ASSERTION_HEADER);
+    if (assertion === null) {
+      return request.headers.get("Authorization") === null
+        ? { userId: null, via: "anonymous" }
+        : { error: unauthorized("gateway_assertion_required"), via: "rejected:gateway_assertion_required" };
+    }
+    const userId = await verifyGatewayAssertion(env.GATEWAY_JWKS_URL, assertion);
+    return userId
+      ? { userId, via: "gateway_assertion" }
+      : { error: unauthorized("invalid_gateway_assertion"), via: "rejected:invalid_gateway_assertion" };
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader === null) return { userId: null, via: "anonymous" };
+  if (!authHeader.startsWith("Bearer ")) return { error: invalidToken(), via: "rejected:invalid_token" };
+  if (!env.ORY_URL) {
+    console.error("[auth] ORY_URL not configured");
+    return { error: unauthorized("auth_not_configured"), via: "rejected:auth_not_configured" };
+  }
+  const userId = await verifyJwtLocally(env.ORY_URL, authHeader.slice(7));
+  return userId ? { userId, via: "ory_token" } : { error: invalidToken(), via: "rejected:invalid_token" };
+}
+
+// One line per MCP POST, without user identifiers, so the operator can see who still calls
+// directly before GATEWAY_JWKS_URL is set. Cloudflare adds CF-Worker to subrequests made by
+// Workers (the Gateway); a direct client such as the bot's own Digital Twin client has none.
+function logAuth(request, via) {
+  console.log(JSON.stringify({
+    event: "mcp_auth",
+    via,
+    cf_worker: request.headers.get("CF-Worker"),
+    has_gateway_assertion: request.headers.has(GATEWAY_ASSERTION_HEADER),
+    has_x_user_id: request.headers.has("X-User-Id"),
+    user_agent: (request.headers.get("User-Agent") ?? "").slice(0, 60) || null,
+  }));
+}
+
+function rpcErrorResponse(id, code, message, status, data, headers = {}) {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id: id ?? null, error: { code, message, ...(data && { data }) } }),
+    { status, headers: { "Content-Type": "application/json", ...headers } });
+}
+
+async function readJsonBody(request) {
+  if (Number(request.headers.get("Content-Length")) > MAX_BODY_BYTES) {
+    return { error: rpcErrorResponse(null, -32600, "Request too large", 413) };
+  }
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_BODY_BYTES) return { error: rpcErrorResponse(null, -32600, "Request too large", 413) };
+  let message;
+  try {
+    message = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return { error: rpcErrorResponse(null, -32700, "Parse error", 400) };
+  }
+  if (message === null || typeof message !== "object" || Array.isArray(message)) {
+    return { error: rpcErrorResponse(null, -32600, "Invalid Request", 400) };
+  }
+  return { message };
 }
 
 // ============================================
@@ -240,6 +335,9 @@ async function handleMCP(env, message, userId) {
     case "tools/list":
       return { jsonrpc: "2.0", id, result: { tools } };
     case "tools/call": {
+      if (params === null || typeof params !== "object" || typeof params.name !== "string") {
+        return { jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid params: tools/call requires params.name" } };
+      }
       const { name, arguments: args } = params;
       let result;
       try {
@@ -286,9 +384,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    console.log(`\n========== [${request.method}] ${url.pathname} ==========`);
-    console.log("[env] ORY_URL:", mask(env.ORY_URL, 20));
-    console.log("[env] DATABASE_URL:", mask(env.DATABASE_URL, 15));
+    console.log(`[${request.method}] ${url.pathname}`);
 
     // CORS: Allow-Credentials requires a specific origin (not "*") per W3C CORS spec.
     // If CORS_ORIGIN is not set, omit Credentials header to remain spec-compliant.
@@ -310,7 +406,11 @@ export default {
 
     // Health check
     if (url.pathname === "/health") {
-      return withCors(jsonResponse({ status: "ok", auth: "jwt-jwks", version: SERVER_VERSION }));
+      return withCors(jsonResponse({
+        status: "ok", auth: "jwt-jwks", version: SERVER_VERSION,
+        // Shows an unfinished rollout: "off" means direct calls with an Ory token are still accepted.
+        gateway_assertion: env.GATEWAY_JWKS_URL ? "enforced" : "off",
+      }));
     }
 
     // MCP endpoint
@@ -325,47 +425,27 @@ export default {
         }));
       }
 
-      const message = await request.json();
+      warnIfLegacyAuth(env);
+
+      // Credentials are verified before the body is parsed, so an unauthenticated
+      // caller only reaches the guarded parser and the public tools/list.
+      const auth = await authenticate(request, env);
+      logAuth(request, auth.via);
+      if (auth.error) return withCors(auth.error);
+      const userId = auth.userId;
+
+      const body = await readJsonBody(request);
+      if (body.error) return withCors(body.error);
+      const message = body.message;
 
       // tools/list is public — allows Gateway to discover tools
-      if (message.method === "tools/list") {
-        const response = await handleMCP(env, message, null);
-        return withCors(jsonResponse(response));
+      if (!userId && message.method !== "tools/list") {
+        return withCors(rpcErrorResponse(message.id, -32001, "Unauthorized", 401, { reason: "missing_token" },
+          { "WWW-Authenticate": "Bearer" }));
       }
 
-      // All other methods require authentication (ADR-IWE-012)
-      const authHeader = request.headers.get("Authorization");
-      if (!authHeader?.startsWith("Bearer ")) {
-        return withCors(new Response(JSON.stringify({
-          jsonrpc: "2.0", id: message.id ?? null,
-          error: { code: -32001, message: "Unauthorized", data: { reason: "missing_token" } },
-        }), { status: 401, headers: { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" } }));
-      }
-
-      if (!env.ORY_URL) {
-        console.error("[auth] ORY_URL not configured");
-        return withCors(new Response(JSON.stringify({
-          jsonrpc: "2.0", id: message.id ?? null,
-          error: { code: -32001, message: "Unauthorized", data: { reason: "auth_not_configured" } },
-        }), { status: 401, headers: { "Content-Type": "application/json" } }));
-      }
-
-      const token = authHeader.slice(7);
-      const userId = await verifyJwtLocally(env.ORY_URL, token);
-
-      if (!userId) {
-        return withCors(new Response(JSON.stringify({
-          jsonrpc: "2.0", id: message.id ?? null,
-          error: { code: -32001, message: "Unauthorized", data: { reason: "invalid_token" } },
-        }), { status: 401, headers: { "Content-Type": "application/json", "WWW-Authenticate": "Bearer error=\"invalid_token\"" } }));
-      }
-
-      // Subscription check delegated to Gateway (ADR-IWE-012, Вариант B → E).
-      // Gateway verifies subscription via subscription_grants before proxying.
-      // digital-twin-mcp is a subscription-required backend (dt_* tools).
-      // Note: knowledge-mcp is FREE for authenticated users — Gateway skips subscription check for knowledge_* tools.
-      // Backends trust Gateway: if request reached here with valid JWT — subscription was verified.
-      // Future (Вариант E): read has_subscription claim from JWT payload directly (requires Paша token hook).
+      // Subscription check delegated to Gateway (ADR-IWE-012): backends trust Gateway.
+      // With GATEWAY_JWKS_URL set, that trust is enforced by the Gateway assertion.
 
       const response = await handleMCP(env, message, userId);
       return withCors(jsonResponse(response));

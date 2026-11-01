@@ -18,9 +18,16 @@ npm test
 
 ## Current Worker configuration
 
-`wrangler.toml` names the Worker `digital-twin-mcp`, uses `src/worker-sse.js` as its entrypoint, and routes `twin.aisystant.com/*` to it. The Worker also has a `workers.dev` address. The configured environment is the default environment; there are no `[env.staging]` or `[env.production]` sections.
+`wrangler.toml` names the Worker `digital-twin-mcp`, uses `src/worker-sse.js` as its entrypoint, and routes `twin.aisystant.com/*` to it. The Worker also has a `workers.dev` address; it stays enabled until the Gateway's `DIGITAL_TWIN_MCP_URL` is confirmed not to use it. The configured environment is the default environment; there are no `[env.staging]` or `[env.production]` sections.
 
-`ORY_URL` and `DATABASE_URL` are Worker secrets. The Worker verifies bearer JWTs against Ory JWKS and stores twin data in PostgreSQL. Keep the database URL out of logs and documentation. `GET /health`, `GET /mcp`, and MCP `tools/list` are public; all other MCP methods require a valid bearer token. The Gateway checks subscription access before forwarding authenticated calls to this backend.
+`ORY_URL` and `DATABASE_URL` are Worker secrets. The Worker verifies bearer JWTs against Ory JWKS and stores twin data in PostgreSQL. Keep the database URL out of logs and documentation. `GET /health`, `GET /mcp`, and MCP `tools/list` without an `Authorization` header are public; all other MCP methods require a valid bearer token, which is verified before the request body is parsed. Bodies over 1 MiB are rejected. The Gateway checks subscription access before forwarding authenticated calls to this backend.
+
+Gateway-only access uses the Gateway assertion that gateway-mcp already mints for its `assertion` backends:
+
+- Set the Worker secret `GATEWAY_JWKS_URL` to the Gateway's public keys (`https://mcp.aisystant.com/gateway/.well-known/jwks.json`). From then on every authenticated call must carry `X-Gateway-Assertion`: an RS256 JWT with `iss=iwe-gateway`, `aud=digital-twin-mcp`, `purpose=registry`, a subject and at most 60 seconds of life. The user is taken from its subject; forwarded Ory tokens are ignored, so direct calls and tokens issued to other Ory clients are refused.
+- Before setting the secret, switch the Gateway's `digital-twin` backend to `auth: "assertion", audience: "digital-twin-mcp"`. The Gateway keeps forwarding the user's token next to the assertion, so this order never breaks calls.
+- Without `GATEWAY_JWKS_URL` the Worker accepts forwarded Ory tokens as before and logs a warning. `GET /health` reports `gateway_assertion: "off"` or `"enforced"`.
+- Every MCP `POST` logs one `mcp_auth` line without user identifiers: how it authenticated (`via`), the `CF-Worker` header Cloudflare adds to requests from Workers such as the Gateway, and the user agent. Before setting `GATEWAY_JWKS_URL`, check `npx wrangler tail digital-twin-mcp --format json --search mcp_auth`. First record the `cf_worker` value of one call known to come through the Gateway: Cloudflare sets `CF-Worker` on requests from any Worker of any owner, so its presence alone proves nothing. Calls with a different or empty `cf_worker` are direct calls that the secret will refuse. Keep the observation window within the plan's log retention (3–7 days).
 
 ## Local development
 
