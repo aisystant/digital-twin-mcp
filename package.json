@@ -3,7 +3,7 @@
   "version": "3.1.0",
   "description": "MCP server for Digital Twin learner data - provides tools for AI Guide to work with learner profiles and metrics",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/worker-sse.js",
   "scripts": {
     "build": "node scripts/build-metamodel.js",
     "dev": "wrangler dev",
@@ -21,7 +21,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "@neondatabase/serverless": "^1.1.0",
     "jose": "^6.2.12"
   },
