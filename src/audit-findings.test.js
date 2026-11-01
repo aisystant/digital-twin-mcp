@@ -151,6 +151,29 @@ describe("audit 2026-11-01: HTTP worker (fixed)", () => {
     }
   });
 
+  it("/health shows whether the Gateway assertion is enforced", async (t) => {
+    silenceLogs(t);
+    const off = await (await worker.fetch(new Request("https://audit.invalid/health"), {})).json();
+    assert.equal(off.gateway_assertion, "off");
+    const on = await (await worker.fetch(new Request("https://audit.invalid/health"),
+      { GATEWAY_JWKS_URL: "https://gateway.audit.invalid/gateway/.well-known/jwks.json" })).json();
+    assert.equal(on.gateway_assertion, "enforced");
+  });
+
+  it("logs how each MCP call authenticated, telling Gateway calls from direct ones, without user ids", async (t) => {
+    const lines = silenceLogs(t);
+    const ory = syntheticOry(t);
+    await post({ ORY_URL: ory }, describeRoot, await token(ory, "any"), { "User-Agent": "python-httpx/0.27" });
+    await post({ ORY_URL: ory }, describeRoot, await token(ory, "any"), { "CF-Worker": "aisystant.com", "X-User-Id": "synthetic-user" });
+    const entries = lines.filter((line) => line.includes('"mcp_auth"')).map((line) => JSON.parse(line));
+    assert.deepEqual(entries.map(({ via, cf_worker }) => ({ via, cf_worker })), [
+      { via: "ory_token", cf_worker: null },
+      { via: "ory_token", cf_worker: "aisystant.com" },
+    ]);
+    assert.equal(entries[0].user_agent, "python-httpx/0.27");
+    assert.ok(!lines.some((line) => line.includes("synthetic-user")), "user id must not be logged");
+  });
+
   it("keeps tools/list public without a token", async (t) => {
     silenceLogs(t);
     const response = await post({ ORY_URL: syntheticOry(t) }, listTools);

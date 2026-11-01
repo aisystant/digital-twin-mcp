@@ -106,26 +106,44 @@ function warnIfLegacyAuth(env) {
 const unauthorized = (reason, headers = {}) => rpcErrorResponse(null, -32001, "Unauthorized", 401, { reason }, headers);
 const invalidToken = (reason = "invalid_token") => unauthorized(reason, { "WWW-Authenticate": "Bearer error=\"invalid_token\"" });
 
-// Returns { userId } (null for an anonymous caller) or { error: Response }.
+// Returns { userId, via } (userId null for an anonymous caller) or { error: Response, via }.
 async function authenticate(request, env) {
   if (env.GATEWAY_JWKS_URL) {
     const assertion = request.headers.get(GATEWAY_ASSERTION_HEADER);
     if (assertion === null) {
-      return request.headers.get("Authorization") === null ? { userId: null } : { error: unauthorized("gateway_assertion_required") };
+      return request.headers.get("Authorization") === null
+        ? { userId: null, via: "anonymous" }
+        : { error: unauthorized("gateway_assertion_required"), via: "rejected:gateway_assertion_required" };
     }
     const userId = await verifyGatewayAssertion(env.GATEWAY_JWKS_URL, assertion);
-    return userId ? { userId } : { error: unauthorized("invalid_gateway_assertion") };
+    return userId
+      ? { userId, via: "gateway_assertion" }
+      : { error: unauthorized("invalid_gateway_assertion"), via: "rejected:invalid_gateway_assertion" };
   }
 
   const authHeader = request.headers.get("Authorization");
-  if (authHeader === null) return { userId: null };
-  if (!authHeader.startsWith("Bearer ")) return { error: invalidToken() };
+  if (authHeader === null) return { userId: null, via: "anonymous" };
+  if (!authHeader.startsWith("Bearer ")) return { error: invalidToken(), via: "rejected:invalid_token" };
   if (!env.ORY_URL) {
     console.error("[auth] ORY_URL not configured");
-    return { error: unauthorized("auth_not_configured") };
+    return { error: unauthorized("auth_not_configured"), via: "rejected:auth_not_configured" };
   }
   const userId = await verifyJwtLocally(env.ORY_URL, authHeader.slice(7));
-  return userId ? { userId } : { error: invalidToken() };
+  return userId ? { userId, via: "ory_token" } : { error: invalidToken(), via: "rejected:invalid_token" };
+}
+
+// One line per MCP POST, without user identifiers, so the operator can see who still calls
+// directly before GATEWAY_JWKS_URL is set. Cloudflare adds CF-Worker to subrequests made by
+// Workers (the Gateway); a direct client such as the bot's own Digital Twin client has none.
+function logAuth(request, via) {
+  console.log(JSON.stringify({
+    event: "mcp_auth",
+    via,
+    cf_worker: request.headers.get("CF-Worker"),
+    has_gateway_assertion: request.headers.has(GATEWAY_ASSERTION_HEADER),
+    has_x_user_id: request.headers.has("X-User-Id"),
+    user_agent: (request.headers.get("User-Agent") ?? "").slice(0, 60) || null,
+  }));
 }
 
 function rpcErrorResponse(id, code, message, status, data, headers = {}) {
@@ -388,7 +406,11 @@ export default {
 
     // Health check
     if (url.pathname === "/health") {
-      return withCors(jsonResponse({ status: "ok", auth: "jwt-jwks", version: SERVER_VERSION }));
+      return withCors(jsonResponse({
+        status: "ok", auth: "jwt-jwks", version: SERVER_VERSION,
+        // Shows an unfinished rollout: "off" means direct calls with an Ory token are still accepted.
+        gateway_assertion: env.GATEWAY_JWKS_URL ? "enforced" : "off",
+      }));
     }
 
     // MCP endpoint
@@ -408,6 +430,7 @@ export default {
       // Credentials are verified before the body is parsed, so an unauthenticated
       // caller only reaches the guarded parser and the public tools/list.
       const auth = await authenticate(request, env);
+      logAuth(request, auth.via);
       if (auth.error) return withCors(auth.error);
       const userId = auth.userId;
 
