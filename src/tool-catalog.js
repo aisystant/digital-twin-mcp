@@ -30,7 +30,7 @@ export const CORE_TOOLS = [
   },
   {
     name: "write_digital_twin",
-    description: "Write a path under 1_declarative. Other categories are system-only. Compatibility: HTTP parses JSON-encoded strings in data; stdio stores string values literally.",
+    description: "Write a path under 1_declarative. Other categories are system-only. Compatibility: HTTP decodes a string holding a JSON object or array; any other string (\"42\", \"true\", \"null\") is stored as text; stdio stores string values literally.",
     inputSchema: {
       type: "object",
       properties: {
