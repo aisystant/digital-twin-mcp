@@ -418,6 +418,8 @@ export default {
     if (url.pathname === "/health") {
       return withCors(jsonResponse({
         status: "ok", auth: "jwt-jwks", version: SERVER_VERSION,
+        // Set by the deploy workflow (--var GIT_COMMIT); identifies the exact deployed source.
+        commit: env.GIT_COMMIT ?? null,
         // Shows an unfinished rollout: "off" means direct calls with an Ory token are still accepted.
         gateway_assertion: env.GATEWAY_JWKS_URL ? "enforced" : "off",
       }));
@@ -456,6 +458,11 @@ export default {
 
       // Subscription check delegated to Gateway (ADR-IWE-012): backends trust Gateway.
       // With GATEWAY_JWKS_URL set, that trust is enforced by the Gateway assertion.
+
+      // JSON-RPC notifications (no id) get no response body (MCP Streamable HTTP: 202 Accepted).
+      if (!("id" in message) && typeof message.method === "string" && message.method.startsWith("notifications/")) {
+        return withCors(new Response(null, { status: 202 }));
+      }
 
       const response = await handleMCP(env, message, userId);
       return withCors(jsonResponse(response));

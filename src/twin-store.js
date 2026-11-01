@@ -53,9 +53,9 @@ export function twinTableName(schema) {
   return `"${schema}"."digital_twins"`;
 }
 
-export function createPostgresStore(sql, userId, { schema, ensureTable = false, maxAttempts = 3 } = {}) {
+// The table is created by migrations/001_digital_twins.sql, not at request time.
+export function createPostgresStore(sql, userId, { schema, maxAttempts = 3 } = {}) {
   const table = twinTableName(schema);
-  let ready;
 
   async function query(text, params = []) {
     try {
@@ -66,17 +66,7 @@ export function createPostgresStore(sql, userId, { schema, ensureTable = false, 
     }
   }
 
-  async function initialize() {
-    if (!ensureTable) return;
-    ready ??= query(`CREATE TABLE IF NOT EXISTS ${table} (
-      user_id TEXT PRIMARY KEY, data JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`);
-    await ready;
-  }
-
   async function readSnapshot() {
-    await initialize();
     const rows = await query(`SELECT data::text AS raw FROM ${table} WHERE user_id = $1`, [userId]);
     return snapshotFromRaw(rows.length ? rows[0].raw : null);
   }

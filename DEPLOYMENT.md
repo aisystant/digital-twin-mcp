@@ -16,6 +16,10 @@ npm run check:metamodel
 npm test
 ```
 
+## Database schema
+
+The Worker never creates tables. Before the first deploy to a new database, apply `migrations/001_digital_twins.sql` (for example `psql "$DATABASE_URL" -f migrations/001_digital_twins.sql`). The table lands in the connection's `search_path` schema; production uses `public.digital_twins` in the `indicators` database. The synchronizer and the bot collectors write to the same table with the same definition.
+
 ## Current Worker configuration
 
 `wrangler.toml` names the Worker `digital-twin-mcp`, uses `src/worker-sse.js` as its entrypoint, and routes `twin.aisystant.com/*` to it. The Worker also has a `workers.dev` address; it stays enabled until the Gateway's `DIGITAL_TWIN_MCP_URL` is confirmed not to use it. The configured environment is the default environment; there are no `[env.staging]` or `[env.production]` sections.
@@ -50,6 +54,8 @@ curl -X POST http://localhost:8787/mcp \
 The local Worker needs its own development bindings for authenticated reads and writes. Do not point a development Worker at the production database for acceptance tests.
 
 ## Deployment
+
+The deploy workflow passes `--var GIT_COMMIT:<sha>`, so `GET /health` reports the deployed commit in `commit`.
 
 A push to `main` runs `.github/workflows/deploy.yml`: it installs dependencies, checks the generated metamodel, runs the security, PostgreSQL CAS, file-concurrency and Workers-runtime tests, then deploys with `cloudflare/wrangler-action@v3`. Pull requests run the checks but skip deployment.
 
