@@ -42,3 +42,22 @@ export const CORE_TOOLS = [
     },
   },
 ];
+
+// Registered only when the learning database is configured (LEARNING_ACTIVITY_URL);
+// without it the tool is absent from tools/list and /health reports missing_config.
+export const ACTIVITY_TOOL = {
+  name: "read_activity",
+  description: "Read the current user's activity board: active days by place (iwe, club, lms, bot; 'other' = not yet classified) with the number of actions per day, from the platform event journal. Moscow dates, inclusive period, default the last 28 days, at most 400. Only the caller's own account; all-time totals, streak and record are in read_digital_twin under 3_derived.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "First day YYYY-MM-DD (Moscow); default: 27 days before 'to'" },
+      to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "Last day YYYY-MM-DD (Moscow), not later than today; default: today" },
+    },
+    additionalProperties: false,
+  },
+};
+
+export function toolsFor(env) {
+  return env?.LEARNING_ACTIVITY_URL ? [...CORE_TOOLS, ACTIVITY_TOOL] : CORE_TOOLS;
+}

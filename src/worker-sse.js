@@ -1,6 +1,6 @@
 /**
  * Digital Twin MCP Server - HTTP Transport
- * Tools: describe_by_path, read_digital_twin, write_digital_twin
+ * Tools: describe_by_path, read_digital_twin, write_digital_twin, read_activity
  *
  * Authentication: JWT verification via Ory JWKS (ADR-IWE-012, B4.21 WP-212).
  * Each request verifies Bearer token locally — no OAuth2 AS, no KV tokens.
@@ -12,7 +12,8 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { METAMODEL, getGroup, getIndicator } from "./metamodel-data.js";
 import { normalizePath, writeUserTwin } from "./twin-path.js";
 import { createPostgresStore, TwinStoreError, storeErrorResult } from "./twin-store.js";
-import { CORE_TOOLS as tools, SERVER_VERSION } from "./tool-catalog.js";
+import { SERVER_VERSION, toolsFor } from "./tool-catalog.js";
+import { createActivityReader } from "./activity-reader.js";
 
 // ============================================
 // JWT Verification (ADR-IWE-012)
@@ -41,27 +42,6 @@ async function verifyJwtLocally(oryUrl, token) {
     return payload.sub ?? null;
   } catch {
     return null;
-  }
-}
-
-// ============================================
-// Subscription Check (DP.SC.112)
-// ============================================
-
-async function checkSubscription(databaseUrl, oryId) {
-  try {
-    const sql = neon(databaseUrl);
-    const [row] = await sql`
-      SELECT EXISTS (
-        SELECT 1 FROM subscription_grants
-        WHERE ory_id = ${oryId}
-          AND (valid_until IS NULL OR valid_until > now())
-          AND revoked_at IS NULL
-      ) AS has_subscription
-    `;
-    return row?.has_subscription === true;
-  } catch {
-    return false;
   }
 }
 
@@ -177,6 +157,21 @@ function getTwinStore(env, userId) {
   if (!env.DATABASE_URL) throw new TwinStoreError("storage_unavailable", "Digital twin database is not configured");
   // Preserve the cloud search_path binding; local indicators is a separate configuration.
   return createPostgresStore(neon(env.DATABASE_URL), userId);
+}
+
+let warnedActivityConfig = false;
+function warnIfActivityMissing(env) {
+  if (warnedActivityConfig || env.LEARNING_ACTIVITY_URL) return;
+  warnedActivityConfig = true;
+  console.error("[activity] LEARNING_ACTIVITY_URL is not set: read_activity is not registered and the activity board shows nothing");
+}
+
+function readActivity(env, args, userId) {
+  if (!env.LEARNING_ACTIVITY_URL) {
+    throw new TwinStoreError("missing_config", "Activity board is not configured on this server (LEARNING_ACTIVITY_URL)");
+  }
+  // neon() validates the connection string on the first query; a bad one surfaces there as storage_error.
+  return createActivityReader(neon(env.LEARNING_ACTIVITY_URL), userId).readActivity(args);
 }
 
 function getByPath(obj, pathStr) {
@@ -348,6 +343,7 @@ async function callTool(env, name, args, userId) {
     case "describe_by_path": return describeByPath(args.path);
     case "read_digital_twin": return await readDigitalTwin(env, args.path, userId, args.include_revision);
     case "write_digital_twin": return await writeDigitalTwin(env, args.path, args.data, userId, args.expected_revision);
+    case "read_activity": return await readActivity(env, args, userId);
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -367,7 +363,7 @@ async function handleMCP(env, message, userId) {
         },
       };
     case "tools/list":
-      return { jsonrpc: "2.0", id, result: { tools } };
+      return { jsonrpc: "2.0", id, result: { tools: toolsFor(env) } };
     case "tools/call": {
       if (params === null || typeof params !== "object" || typeof params.name !== "string") {
         return { jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid params: tools/call requires params.name" } };
@@ -446,6 +442,9 @@ export default {
         commit: env.GIT_COMMIT ?? null,
         // Shows an unfinished rollout: "off" means direct calls with an Ory token are still accepted.
         gateway_assertion: env.GATEWAY_JWKS_URL ? "enforced" : "off",
+        // The activity board needs its own database; "missing_config" is an unfinished setup, not a choice.
+        activity: env.LEARNING_ACTIVITY_URL ? "configured" : "missing_config",
+        ...(!env.LEARNING_ACTIVITY_URL && { activity_detail: "LEARNING_ACTIVITY_URL is not set" }),
       }));
     }
 
@@ -457,11 +456,12 @@ export default {
           version: SERVER_VERSION,
           description: "Digital Twin MCP Server — JWT auth via Ory JWKS",
           storage: env?.DATABASE_URL ? "persistent" : "unavailable",
-          tools: tools.map(t => ({ name: t.name, description: t.description })),
+          tools: toolsFor(env).map(t => ({ name: t.name, description: t.description })),
         }));
       }
 
       warnIfLegacyAuth(env);
+      warnIfActivityMissing(env);
 
       // Credentials are verified before the body is parsed, so an unauthenticated
       // caller only reaches the guarded parser and the public tools/list.
