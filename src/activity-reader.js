@@ -63,7 +63,9 @@ export function createActivityReader(sql, userId, { now = () => new Date() } = {
         [userId, period.from, period.to, MAX_ROWS + 1],
       );
     } catch (error) {
-      console.error("[activity-reader] database request failed", { type: error.name });
+      // Only the type and the PostgreSQL error code (for example 42883 missing function, 28P01 bad
+      // password, 3D000 missing database): the message can carry the connection string.
+      console.error("[activity-reader] database request failed", { type: error.name, code: error.code ?? null });
       throw new TwinStoreError("storage_error", "Activity storage request failed");
     }
     if (rows.length > MAX_ROWS) {

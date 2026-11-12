@@ -106,6 +106,14 @@ describe("createActivityReader", () => {
     await assert.rejects(createActivityReader(fakeSql(new Error("boom")), ME, { now }).readActivity({}),
       { code: "storage_error" });
   });
+
+  it("logs the database error code but never its message", async (t) => {
+    const logged = [];
+    t.mock.method(console, "error", (...args) => logged.push(args));
+    const failure = Object.assign(new Error("connection string postgresql://secret-host"), { code: "28P01" });
+    await assert.rejects(createActivityReader(fakeSql(failure), ME, { now }).readActivity({}), { code: "storage_error" });
+    assert.deepEqual(logged, [["[activity-reader] database request failed", { type: "Error", code: "28P01" }]]);
+  });
 });
 
 describe("read_activity registration", () => {
