@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit.
-// Generated: 2026-05-22T15:39:22Z
+// Generated: 2026-11-17T11:02:41Z
 // Run: python3 scripts/generate-indicators.py
 // Source: metamodel/3_derived/
 
@@ -7,6 +7,7 @@
 export const DTGroup = {
     INTEGRAL: "3_10_integral",
     DIAGNOSTIC: "3_11_diagnostic",
+    ACTIVITY: "3_15_activity",
     AGENCY: "3_1_agency",
     MASTERY: "3_2_mastery",
     CHARACTERISTICS: "3_3_characteristics",
@@ -31,6 +32,8 @@ export const DTIndicator = {
     RECOMMENDED_FOCUS: "IND.3.11.03", // type: semantic
     COGNITIVE_LOAD: "IND.3.11.04", // type: scale, unit: 0-1
     FRUSTRATION_LEVEL: "IND.3.11.05", // type: scale, unit: 0-1
+    // 3_15_activity
+    ACTIVITY_BY_PLACE: "IND.3.15.01", // type: temporal
     // 3_1_agency
     AVERAGE_SELF_DEVELOPMENT_HOURS_PER_WEEK: "IND.3.1.01", // type: temporal, unit: hours/week
     PROPORTION_OF_DAYS_WITH_LEARNING_SLOT: "IND.3.1.02", // type: frequency, unit: days/week
